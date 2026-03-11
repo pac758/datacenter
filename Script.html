@@ -4319,8 +4319,8 @@ function handleFileUpload(documentData) {
 // ⭐ CHUNKED UPLOAD - แก้ปัญหา HTTP 413 (Payload Too Large)
 // ===================================================================
 
-// ขนาด chunk สำหรับ base64 (~5MB raw = ~6.7MB base64, ปลอดภัยต่อลิมิต google.script.run)
-const CHUNK_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per chunk (raw bytes)
+// ขนาด chunk (~20MB raw = ~27MB base64, ปลอดภัยต่อลิมิต google.script.run ~50MB)
+const CHUNK_SIZE_BYTES = 20 * 1024 * 1024; // 20MB per chunk (ลด round-trip 4x)
 const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024; // ไฟล์ > 20MB ใช้ chunked upload
 
 /**
@@ -4336,16 +4336,19 @@ function readFileAsArrayBuffer(file) {
 }
 
 /**
- * ⭐ แปลง ArrayBuffer เป็น Base64 string
+ * ⭐ แปลง ArrayBuffer เป็น Base64 string (optimized — ใช้ chunked apply แทน concat ทีละ byte)
  */
 function arrayBufferToBase64(buffer) {
-  let binary = '';
   const bytes = new Uint8Array(buffer);
   const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  // ⭐ ใช้ String.fromCharCode.apply ทีละ 32KB block แทน concat ทีละ byte (เร็วขึ้น 50-100x)
+  const BLOCK = 32768;
+  const parts = [];
+  for (let offset = 0; offset < len; offset += BLOCK) {
+    const slice = bytes.subarray(offset, Math.min(offset + BLOCK, len));
+    parts.push(String.fromCharCode.apply(null, slice));
   }
-  return btoa(binary);
+  return btoa(parts.join(''));
 }
 
 /**
@@ -4371,6 +4374,7 @@ async function uploadFileChunked(file, category, onProgress) {
   }
   
   const uploadId = startResult.uploadId;
+  const tempFolderId = startResult.tempFolderId;
   
   // 2) ส่ง chunks ทีละชิ้น (sequential เพื่อความเสถียร)
   for (let i = 0; i < totalChunks; i++) {
@@ -4383,7 +4387,7 @@ async function uploadFileChunked(file, category, onProgress) {
       google.script.run
         .withSuccessHandler(resolve)
         .withFailureHandler(reject)
-        .uploadChunk(uploadId, i, chunkBase64);
+        .uploadChunk(uploadId, i, chunkBase64, tempFolderId);
     });
     
     if (!chunkResult.success) {

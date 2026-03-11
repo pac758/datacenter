@@ -185,7 +185,7 @@
   };
 
   // ===== Upload + Save (รองรับ Chunked Upload สำหรับไฟล์ใหญ่) =====
-  var EDIT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+  var EDIT_CHUNK_SIZE = 20 * 1024 * 1024; // 20MB per chunk (ลด round-trip)
   var EDIT_LARGE_THRESHOLD = 20 * 1024 * 1024; // >20MB ใช้ chunked
 
   function _readAsArrayBuffer(file){
@@ -194,9 +194,12 @@
     });
   }
   function _ab2b64(buf){
-    var binary='',bytes=new Uint8Array(buf),len=bytes.byteLength;
-    for(var i=0;i<len;i++)binary+=String.fromCharCode(bytes[i]);
-    return btoa(binary);
+    var bytes=new Uint8Array(buf),len=bytes.byteLength;
+    var BLOCK=32768,parts=[];
+    for(var offset=0;offset<len;offset+=BLOCK){
+      parts.push(String.fromCharCode.apply(null,bytes.subarray(offset,Math.min(offset+BLOCK,len))));
+    }
+    return btoa(parts.join(''));
   }
   function _uploadChunkedEdit(file){
     return _readAsArrayBuffer(file).then(function(ab){
@@ -206,7 +209,7 @@
       return new Promise(function(resolve,reject){
         google.script.run.withSuccessHandler(function(sr){
           if(!sr||!sr.success){reject(new Error(sr?sr.error:'Start failed'));return;}
-          var uploadId=sr.uploadId,ci=0;
+          var uploadId=sr.uploadId,tempFolderId=sr.tempFolderId,ci=0;
           function sendChunk(){
             if(ci>=totalChunks){
               google.script.run.withSuccessHandler(function(fr){
@@ -219,7 +222,7 @@
             google.script.run.withSuccessHandler(function(cr){
               if(!cr||!cr.success){reject(new Error(cr?cr.error:'Chunk failed'));return;}
               ci++;sendChunk();
-            }).withFailureHandler(reject).uploadChunk(uploadId,ci,chunk64);
+            }).withFailureHandler(reject).uploadChunk(uploadId,ci,chunk64,tempFolderId);
           }
           sendChunk();
         }).withFailureHandler(reject).startChunkedUpload(file.name,totalChunks,file.type||'application/octet-stream','');

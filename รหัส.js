@@ -963,17 +963,17 @@ function startChunkedUpload(fileName, totalChunks, mimeType, category) {
  * @param {string} chunkData - Base64 data ของ chunk นี้
  * @returns {Object} - {success, chunkIndex, receivedChunks}
  */
-function uploadChunk(uploadId, chunkIndex, chunkData) {
+function uploadChunk(uploadId, chunkIndex, chunkData, tempFolderId) {
   try {
-    var props = PropertiesService.getScriptProperties();
-    var metaStr = props.getProperty('UPLOAD_' + uploadId);
-    
-    if (!metaStr) {
-      return { success: false, error: 'Upload session not found: ' + uploadId };
+    // ⭐ ใช้ tempFolderId จาก client โดยตรง ลด ScriptProperties read
+    var folderId = tempFolderId;
+    if (!folderId) {
+      var metaStr = PropertiesService.getScriptProperties().getProperty('UPLOAD_' + uploadId);
+      if (!metaStr) return { success: false, error: 'Upload session not found: ' + uploadId };
+      folderId = JSON.parse(metaStr).tempFolderId;
     }
     
-    var meta = JSON.parse(metaStr);
-    var tempFolder = DriveApp.getFolderById(meta.tempFolderId);
+    var tempFolder = DriveApp.getFolderById(folderId);
     
     // ลบ data URL prefix ถ้ามี
     var base64 = chunkData;
@@ -990,17 +990,9 @@ function uploadChunk(uploadId, chunkIndex, chunkData) {
     );
     tempFolder.createFile(chunkBlob);
     
-    // อัปเดต metadata
-    meta.receivedChunks = (meta.receivedChunks || 0) + 1;
-    props.setProperty('UPLOAD_' + uploadId, JSON.stringify(meta));
-    
-    Logger.log('📦 Chunk ' + (chunkIndex + 1) + '/' + meta.totalChunks + ' received for ' + meta.fileName);
-    
     return {
       success: true,
-      chunkIndex: chunkIndex,
-      receivedChunks: meta.receivedChunks,
-      totalChunks: meta.totalChunks
+      chunkIndex: chunkIndex
     };
   } catch (error) {
     Logger.log('❌ uploadChunk Error: ' + error.toString());
@@ -1041,13 +1033,19 @@ function finishChunkedUpload(uploadId) {
       return { success: false, error: 'No chunks found' };
     }
     
-    // รวม bytes ทั้งหมด
-    var allBytes = [];
+    // ⭐ รวม chunks แบบ efficient ด้วย Blob concatenation (ไม่ loop byte-by-byte)
+    var blobs = [];
     for (var i = 0; i < chunkFiles.length; i++) {
-      var chunkBytes = chunkFiles[i].getBlob().getBytes();
-      for (var j = 0; j < chunkBytes.length; j++) {
-        allBytes.push(chunkBytes[j]);
-      }
+      blobs.push(chunkFiles[i].getBlob());
+    }
+    
+    // ใช้ concat bytes ทีเดียว แทน push ทีละ byte
+    var allByteArrays = blobs.map(function(b) { return b.getBytes(); });
+    var totalLen = allByteArrays.reduce(function(sum, a) { return sum + a.length; }, 0);
+    var allBytes = [];
+    // ใช้ Array.prototype.push.apply ทีละ chunk (เร็วกว่า push ทีละ byte มาก)
+    for (var k = 0; k < allByteArrays.length; k++) {
+      Array.prototype.push.apply(allBytes, allByteArrays[k]);
     }
     
     // สร้างไฟล์สุดท้าย
@@ -1056,6 +1054,8 @@ function finishChunkedUpload(uploadId) {
       meta.mimeType,
       meta.fileName
     );
+    
+    Logger.log('📦 Combined ' + chunkFiles.length + ' chunks → ' + totalLen + ' bytes');
     
     var destFolder = getOrCreateCategoryFolder(meta.category);
     var finalFile = destFolder.createFile(finalBlob);
@@ -1180,7 +1180,7 @@ function uploadSingleFile(fileData, fileName, mimeType, category) {
       fileId: file.getId(),
       fileName: file.getName(),
       mimeType: file.getMimeType(),
-      size: blob.getBytes().length
+      size: file.getSize()
     };
     
   } catch (error) {
