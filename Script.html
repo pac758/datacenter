@@ -4353,7 +4353,7 @@ function arrayBufferToBase64(buffer) {
 }
 
 /**
- * ⭐ อัปโหลดไฟล์ใหญ่แบบ Chunked
+ * ⭐ อัปโหลดไฟล์ใหญ่แบบ Chunked — ส่งตรงไป Drive API (ไม่ผ่าน temp folder)
  */
 async function uploadFileChunked(file, category, onProgress) {
   const arrayBuffer = await readFileAsArrayBuffer(file);
@@ -4362,12 +4362,12 @@ async function uploadFileChunked(file, category, onProgress) {
   
   console.log(`📦 Chunked upload: ${file.name} (${(totalBytes/1024/1024).toFixed(2)} MB, ${totalChunks} chunks)`);
   
-  // 1) เริ่ม session
+  // 1) เริ่ม session — สร้าง Drive API resumable session
   const startResult = await new Promise((resolve, reject) => {
     google.script.run
       .withSuccessHandler(resolve)
       .withFailureHandler(reject)
-      .startChunkedUpload(file.name, totalChunks, file.type || 'application/octet-stream', category);
+      .startChunkedUpload(file.name, totalBytes, file.type || 'application/octet-stream', category, totalBytes);
   });
   
   if (!startResult.success) {
@@ -4375,9 +4375,10 @@ async function uploadFileChunked(file, category, onProgress) {
   }
   
   const uploadId = startResult.uploadId;
-  const tempFolderId = startResult.tempFolderId;
+  const uploadUrl = startResult.uploadUrl;
   
-  // 2) ส่ง chunks ทีละชิ้น (sequential เพื่อความเสถียร)
+  // 2) ส่ง chunks ทีละชิ้นตรงไป Drive API (sequential)
+  let lastResult = null;
   for (let i = 0; i < totalChunks; i++) {
     const start = i * CHUNK_SIZE_BYTES;
     const end = Math.min(start + CHUNK_SIZE_BYTES, totalBytes);
@@ -4388,34 +4389,25 @@ async function uploadFileChunked(file, category, onProgress) {
       google.script.run
         .withSuccessHandler(resolve)
         .withFailureHandler(reject)
-        .uploadChunk(uploadId, i, chunkBase64, tempFolderId);
+        .uploadChunk(uploadId, i, chunkBase64, uploadUrl, start, totalBytes);
     });
     
     if (!chunkResult.success) {
       throw new Error('Chunk ' + i + ' failed: ' + (chunkResult.error || 'Unknown'));
     }
     
-    if (onProgress) {
-      onProgress(i + 1, totalChunks);
-    }
-    
+    lastResult = chunkResult;
+    if (onProgress) onProgress(i + 1, totalChunks);
     console.log(`📦 Chunk ${i + 1}/${totalChunks} sent`);
   }
   
-  // 3) รวม chunks เป็นไฟล์สุดท้าย
-  const finishResult = await new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(reject)
-      .finishChunkedUpload(uploadId);
-  });
-  
-  if (!finishResult.success) {
-    throw new Error('Finish chunked upload failed: ' + (finishResult.error || 'Unknown'));
+  // 3) chunk สุดท้ายจะ return ผลลัพธ์ไฟล์เลย (ไม่ต้องเรียก finishChunkedUpload)
+  if (!lastResult || lastResult.status !== 'complete') {
+    throw new Error('Upload did not complete properly');
   }
   
   console.log(`✅ Chunked upload complete: ${file.name}`);
-  return finishResult;
+  return lastResult;
 }
 
 // ฟังก์ชันอัปโหลดไฟล์ปกติ (รองรับ chunked upload สำหรับไฟล์ใหญ่)

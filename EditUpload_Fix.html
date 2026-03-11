@@ -209,23 +209,22 @@
       return new Promise(function(resolve,reject){
         google.script.run.withSuccessHandler(function(sr){
           if(!sr||!sr.success){reject(new Error(sr?sr.error:'Start failed'));return;}
-          var uploadId=sr.uploadId,tempFolderId=sr.tempFolderId,ci=0;
+          var uploadId=sr.uploadId,uploadUrl=sr.uploadUrl,ci=0;
           function sendChunk(){
             if(ci>=totalChunks){
-              google.script.run.withSuccessHandler(function(fr){
-                if(fr&&fr.success)resolve(fr);else reject(new Error(fr?fr.error:'Finish failed'));
-              }).withFailureHandler(reject).finishChunkedUpload(uploadId);
-              return;
+              // ไม่ควรถึงตรงนี้ — chunk สุดท้ายจะ complete เอง
+              reject(new Error('Upload did not complete'));return;
             }
             var start=ci*EDIT_CHUNK_SIZE,end=Math.min(start+EDIT_CHUNK_SIZE,totalBytes);
             var chunk64=_ab2b64(ab.slice(start,end));
             google.script.run.withSuccessHandler(function(cr){
               if(!cr||!cr.success){reject(new Error(cr?cr.error:'Chunk failed'));return;}
+              if(cr.status==='complete'){resolve(cr);return;}
               ci++;sendChunk();
-            }).withFailureHandler(reject).uploadChunk(uploadId,ci,chunk64,tempFolderId);
+            }).withFailureHandler(reject).uploadChunk(uploadId,ci,chunk64,uploadUrl,start,totalBytes);
           }
           sendChunk();
-        }).withFailureHandler(reject).startChunkedUpload(file.name,totalChunks,file.type||'application/octet-stream','');
+        }).withFailureHandler(reject).startChunkedUpload(file.name,totalBytes,file.type||'application/octet-stream','',totalBytes);
       });
     });
   }
