@@ -1,0 +1,158 @@
+<!-- ===== MultiAccount_Fix.html ===== -->
+<!-- ✅ แก้ปัญหาเข้าระบบไม่ได้เมื่อใช้หลายบัญชี Google -->
+<!-- ✅ ตรวจจับ + แก้ไขอัตโนมัติ + แสดงคำแนะนำ -->
+<!-- วิธีใช้: <?!= include('MultiAccount_Fix'); ?> ใน index.html (ใส่ก่อน Script) -->
+
+<script>
+(function() {
+  'use strict';
+
+  // ตรวจจับ multi-account แบบละเอียด
+  function detectMultiAccountIssue() {
+    const url = window.location.href;
+    const hasMultiAccount = /\/u\/\d+\//.test(url);
+    const isInIframe = window.self !== window.top;
+    
+    // ตรวจ cookie conflicts
+    const cookies = document.cookie;
+    const hasMultipleSID = (cookies.match(/SID=/g) || []).length > 1;
+    
+    return {
+      hasIssue: hasMultiAccount || hasMultipleSID,
+      inIframe: isInIframe,
+      url: url
+    };
+  }
+
+  // แก้ปัญหาอัตโนมัติ
+  function autoFix() {
+    const issue = detectMultiAccountIssue();
+    
+    if (!issue.hasIssue || issue.inIframe) return;
+    
+    // ลบ /u/X/ และ redirect
+    const cleanUrl = issue.url
+      .replace(/\/u\/\d+\//, '/')
+      .split('?')[0]
+      .split('#')[0];
+    
+    // เพิ่ม authuser=0 เพื่อบังคับใช้บัญชีแรก
+    const fixedUrl = cleanUrl + '?authuser=0';
+    
+    console.log('🔧 Auto-fixing multi-account issue...');
+    
+    // ใช้ setTimeout เพื่อให้ user เห็น warning ก่อน redirect
+    setTimeout(() => {
+      window.location.replace(fixedUrl);
+    }, 1000);
+  }
+
+  // แสดง warning ถ้าตรวจพบปัญหา
+  function showWarning() {
+    const issue = detectMultiAccountIssue();
+    if (!issue.hasIssue) return;
+    
+    // สร้าง banner warning
+    const banner = document.createElement('div');
+    banner.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 20px;
+      text-align: center;
+      z-index: 999999;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    `;
+    banner.innerHTML = `
+      <i class="fas fa-exclamation-triangle"></i>
+      <strong>กำลังแก้ไขปัญหาหลายบัญชี...</strong>
+      กรุณารอสักครู่
+    `;
+    document.body.insertBefore(banner, document.body.firstChild);
+    
+    // ลบ banner หลัง redirect
+    setTimeout(() => banner.remove(), 5000);
+  }
+
+  // รอให้หน้าโหลดเสร็จก่อนทำงาน
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      showWarning();
+      autoFix();
+    });
+  } else {
+    showWarning();
+    autoFix();
+  }
+
+  // Export function สำหรับเรียกใช้ manual
+  window.fixMultiAccountAccess = function() {
+    const deployUrl = window.location.href
+      .replace(/\/u\/\d+\//, '/')
+      .split('?')[0]
+      .split('#')[0];
+    
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'info',
+        title: '🔐 แก้ปัญหาหลายบัญชี',
+        html: `
+          <div style="text-align:left;padding:20px;">
+            <h3 style="color:#667eea;margin-bottom:15px;">วิธีแก้ปัญหา:</h3>
+            
+            <div style="background:#f0f9ff;padding:15px;border-radius:8px;margin-bottom:15px;">
+              <strong>1. เปิดในโหมดไม่ระบุตัวตน (แนะนำ)</strong><br>
+              <small style="color:#64748b;">กด Ctrl+Shift+N (Windows) หรือ Cmd+Shift+N (Mac)</small><br>
+              <input type="text" value="${deployUrl}?authuser=0" 
+                     onclick="this.select();document.execCommand('copy');" 
+                     style="width:100%;padding:8px;margin-top:8px;border:1px solid #cbd5e1;border-radius:4px;" readonly>
+              <small style="color:#059669;">คลิกเพื่อคัดลอก</small>
+            </div>
+            
+            <div style="background:#fef3c7;padding:15px;border-radius:8px;margin-bottom:15px;">
+              <strong>2. ออกจากบัญชี Google อื่น</strong><br>
+              <small style="color:#64748b;">ไปที่ 
+                <a href="https://accounts.google.com/SignOutOptions" target="_blank" style="color:#2563eb;">
+                  accounts.google.com
+                </a> แล้วออกจากระบบทุกบัญชี
+              </small>
+            </div>
+            
+            <div style="background:#f0fdf4;padding:15px;border-radius:8px;">
+              <strong>3. ใช้ URL พิเศษ</strong><br>
+              <code style="background:#e2e8f0;padding:4px 8px;border-radius:4px;">
+                ${deployUrl}?authuser=0
+              </code>
+            </div>
+          </div>
+        `,
+        confirmButtonText: 'ลองอีกครั้ง',
+        confirmButtonColor: '#667eea',
+        showCancelButton: true,
+        cancelButtonText: 'คัดลอก URL',
+        cancelButtonColor: '#10b981'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          window.location.href = deployUrl + '?authuser=0';
+        } else if (result.dismiss === Swal.DismissReason.cancel) {
+          navigator.clipboard.writeText(deployUrl + '?authuser=0').then(() => {
+            Swal.fire({
+              icon: 'success',
+              title: 'คัดลอกแล้ว!',
+              text: 'วาง URL ในแท็บใหม่ได้เลย',
+              timer: 2000,
+              showConfirmButton: false
+            });
+          });
+        }
+      });
+    }
+  };
+
+  console.log('✅ MultiAccount_Fix v2.0 loaded');
+})();
+</script>

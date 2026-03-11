@@ -1,0 +1,316 @@
+<!-- ===== EditUpload_Fix.html - v16.5 ===== -->
+<!-- ✅ แก้ไขเอกสารพร้อมอัปโหลดไฟล์ใหม่ได้ -->
+<!-- ✅ ลบไฟล์เดิมทีละรายการได้ -->
+<!-- ✅ เพิ่มไฟล์ใหม่ (ไฟล์ / โฟลเดอร์ / URL) -->
+<!-- ✅ Override ทำงานแม้ script หลักโหลดทีหลัง -->
+<!-- วิธีใช้: <?!= include('EditUpload_Fix'); ?> ใน index.html -->
+
+<style>
+.edit-files-section{margin-top:8px}
+.edit-files-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.edit-files-title{font-size:13px;font-weight:700;color:#475569;display:flex;align-items:center;gap:6px}
+.edit-files-title i{color:#667eea}
+.edit-files-count{background:#667eea;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.edit-file-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:4px;transition:all .15s}
+.edit-file-item:hover{background:#f0f4ff;border-color:#c7d2fe}
+.edit-file-item.removing{opacity:.5;transform:translateX(20px);transition:all .3s}
+.edit-file-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.edit-file-icon.pdf{background:#fee2e2}.edit-file-icon.doc{background:#dbeafe}.edit-file-icon.xls{background:#d1fae5}
+.edit-file-icon.ppt{background:#fef3c7}.edit-file-icon.img{background:#ede9fe}.edit-file-icon.vid{background:#fce7f3}
+.edit-file-name{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:#1e293b;word-break:break-all;overflow-wrap:break-word}
+.edit-file-badge{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;flex-shrink:0}
+.edit-file-badge.existing{background:#dbeafe;color:#1e40af}
+.edit-file-badge.new{background:#d1fae5;color:#065f46}
+.edit-file-actions{display:flex;gap:4px;flex-shrink:0}
+.edit-file-btn{width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s;text-decoration:none}
+.edit-file-btn.open{background:#ede9fe;color:#7c3aed}.edit-file-btn.open:hover{background:#ddd6fe}
+.edit-file-btn.remove{background:#fee2e2;color:#dc2626}.edit-file-btn.remove:hover{background:#fecaca}
+.edit-add-files-bar{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.edit-add-btn{flex:1;min-width:90px;padding:10px 12px;border:2px dashed #cbd5e1;border-radius:8px;background:#f8fafc;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s}
+.edit-add-btn:hover{border-color:#667eea;background:#f0f4ff;color:#667eea}
+.edit-add-btn i{font-size:14px}
+.edit-url-input-area{margin-top:8px;display:none}
+.edit-url-input-area.active{display:block}
+.edit-url-input-area textarea{width:100%;padding:10px;border:2px solid #e2e8f0;border-radius:8px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box}
+.edit-url-actions{display:flex;gap:6px;margin-top:6px}
+.edit-url-btn{padding:6px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px}
+.edit-url-btn.add{background:#667eea;color:#fff}
+.edit-url-btn.cancel{background:#f1f5f9;color:#64748b}
+.edit-files-empty{text-align:center;padding:16px;color:#94a3b8;font-size:13px;background:#f8fafc;border:2px dashed #e2e8f0;border-radius:8px}
+.edit-files-empty i{font-size:24px;display:block;margin-bottom:6px}
+.edit-upload-progress{margin-top:8px;padding:10px;background:#eff6ff;border-radius:8px;display:none}
+.edit-upload-progress.active{display:block}
+.edit-progress-bar{height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin-top:6px}
+.edit-progress-fill{height:100%;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:2px;transition:width .3s;width:0%}
+.edit-progress-text{font-size:12px;color:#667eea;font-weight:600;display:flex;align-items:center;gap:6px}
+@media(max-width:768px){
+  .edit-file-item{padding:6px 8px;gap:6px}
+  .edit-file-icon{width:24px;height:24px;font-size:12px}
+  .edit-file-name{font-size:12px}
+  .edit-add-btn{padding:8px 10px;font-size:11px;min-width:80px}
+}
+</style>
+
+<script>
+(function(){
+  'use strict';
+
+  // ===== Global State =====
+  window._editExistingFiles = [];
+  window._editNewFiles = [];
+  window._editNewUrls = [];
+
+  // ===== Helpers =====
+  function _esc(t){if(!t)return'';var d=document.createElement('div');d.textContent=String(t);return d.innerHTML}
+  function _ext(n){if(!n)return'';return(n.split('.').pop()||'').toLowerCase()}
+  function _fname(url){
+    if(!url)return'ไฟล์';
+    try{var c=url.split('?')[0].split('#')[0].split('/');var l=decodeURIComponent(c[c.length-1]||'');
+    if(l&&l.indexOf('.')!==-1)return l;if(url.indexOf('drive.google.com')!==-1)return'Google Drive File';return l||'ไฟล์';}catch(e){return'ไฟล์';}
+  }
+  function _icon(ext){
+    var m={'pdf':{e:'📕',c:'pdf'},'doc':{e:'📘',c:'doc'},'docx':{e:'📘',c:'doc'},'xls':{e:'📗',c:'xls'},'xlsx':{e:'📗',c:'xls'},'csv':{e:'📊',c:'xls'},'ppt':{e:'📙',c:'ppt'},'pptx':{e:'📙',c:'ppt'},'jpg':{e:'🖼️',c:'img'},'jpeg':{e:'🖼️',c:'img'},'png':{e:'🖼️',c:'img'},'gif':{e:'🖼️',c:'img'},'webp':{e:'🖼️',c:'img'},'mp4':{e:'🎬',c:'vid'},'mov':{e:'🎬',c:'vid'},'mp3':{e:'🎵',c:'vid'},'wav':{e:'🎵',c:'vid'},'zip':{e:'📦',c:''},'rar':{e:'📦',c:''},'txt':{e:'📝',c:''}};
+    return m[ext]||{e:'📄',c:''};
+  }
+  function _parseF(json){
+    if(!json)return[];var s=String(json).trim();if(!s||s==='[]')return[];
+    try{var p=JSON.parse(s);if(Array.isArray(p))return p;if(typeof p==='object')return[p];}catch(e){}
+    var urls=s.match(/https?:\/\/[^\s,\]"]+/g);
+    if(urls)return urls.map(function(u){return{url:u,name:_fname(u)};});
+    return[];
+  }
+  function _setSelect(id,val){
+    var s=document.getElementById(id);if(!s)return;
+    for(var i=0;i<s.options.length;i++){if(s.options[i].value===val){s.selectedIndex=i;return;}}
+    if(val){var o=document.createElement('option');o.value=val;o.textContent=val;s.appendChild(o);s.value=val;}
+  }
+
+  // ===== Thai Date Parser =====
+  function parseDateTH(dateStr){
+    if(!dateStr)return'';var s=String(dateStr).trim();
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+    var mm={'มกราคม':'01','กุมภาพันธ์':'02','มีนาคม':'03','เมษายน':'04','พฤษภาคม':'05','มิถุนายน':'06','กรกฎาคม':'07','สิงหาคม':'08','กันยายน':'09','ตุลาคม':'10','พฤศจิกายน':'11','ธันวาคม':'12'};
+    var month=null;for(var k in mm){if(s.indexOf(k)!==-1){month=mm[k];break;}}
+    var nums=s.match(/\d+/g);
+    if(month&&nums&&nums.length>=2){var day=nums[0];var yr=parseInt(nums[nums.length-1]);if(yr>2400)yr-=543;if(yr>1900&&yr<2200)return yr+'-'+month+'-'+String(day).padStart(2,'0');}
+    try{var d=new Date(s);if(!isNaN(d.getTime()))return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}catch(e){}
+    return'';
+  }
+  window.parseThaiDateToInput = parseDateTH;
+
+  // ===== Render File List =====
+  function renderList(){
+    var c=document.getElementById('edit_file_list');if(!c)return;
+    var h='',tot=_editExistingFiles.length+_editNewFiles.length+_editNewUrls.length;
+
+    h+='<div class="edit-files-section"><div class="edit-files-header"><span class="edit-files-title"><i class="fas fa-paperclip"></i> ไฟล์แนบ <span class="edit-files-count">'+tot+'</span></span></div>';
+
+    if(tot===0){
+      h+='<div class="edit-files-empty"><i class="fas fa-folder-open"></i>ไม่มีไฟล์แนบ</div>';
+    } else {
+      // ไฟล์เดิม
+      _editExistingFiles.forEach(function(f,i){
+        var nm=f.name||f.fileName||_fname(f.url||f.fileUrl)||('ไฟล์ '+(i+1));
+        var url=f.url||f.fileUrl||'#';var ic=_icon(_ext(nm));
+        h+='<div class="edit-file-item" id="ef-ex-'+i+'"><div class="edit-file-icon '+ic.c+'">'+ic.e+'</div>';
+        h+='<div class="edit-file-name">'+_esc(nm)+'</div><span class="edit-file-badge existing">เดิม</span>';
+        h+='<div class="edit-file-actions">';
+        if(url!=='#')h+='<a href="'+_esc(url)+'" target="_blank" class="edit-file-btn open"><i class="fas fa-external-link-alt"></i></a>';
+        h+='<button type="button" class="edit-file-btn remove" onclick="removeEditExistingFile('+i+')"><i class="fas fa-times"></i></button></div></div>';
+      });
+      // ไฟล์ใหม่
+      _editNewFiles.forEach(function(f,i){
+        var ic=_icon(_ext(f.name));var sz=f.size>=1048576?(f.size/1048576).toFixed(1)+' MB':(f.size/1024).toFixed(1)+' KB';
+        h+='<div class="edit-file-item" id="ef-nf-'+i+'"><div class="edit-file-icon '+ic.c+'">'+ic.e+'</div>';
+        h+='<div class="edit-file-name">'+_esc(f.name)+' <span style="color:#94a3b8;font-size:11px">('+sz+')</span></div>';
+        h+='<span class="edit-file-badge new">ใหม่</span><div class="edit-file-actions">';
+        h+='<button type="button" class="edit-file-btn remove" onclick="removeEditNewFile('+i+')"><i class="fas fa-times"></i></button></div></div>';
+      });
+      // URL ใหม่
+      _editNewUrls.forEach(function(u,i){
+        var nm=u.name||_fname(u.url);var ic=_icon(_ext(nm));
+        h+='<div class="edit-file-item" id="ef-nu-'+i+'"><div class="edit-file-icon '+ic.c+'">'+ic.e+'</div>';
+        h+='<div class="edit-file-name">'+_esc(nm)+'</div><span class="edit-file-badge new">URL ใหม่</span>';
+        h+='<div class="edit-file-actions"><a href="'+_esc(u.url)+'" target="_blank" class="edit-file-btn open"><i class="fas fa-external-link-alt"></i></a>';
+        h+='<button type="button" class="edit-file-btn remove" onclick="removeEditNewUrl('+i+')"><i class="fas fa-times"></i></button></div></div>';
+      });
+    }
+
+    // ปุ่มเพิ่มไฟล์
+    h+='<div class="edit-add-files-bar">';
+    h+='<button type="button" class="edit-add-btn" onclick="document.getElementById(\'edit_add_file\').click()"><i class="fas fa-file-upload"></i> เพิ่มไฟล์</button>';
+    h+='<input type="file" id="edit_add_file" multiple style="display:none" onchange="handleEditAddFiles(this.files)">';
+    h+='<button type="button" class="edit-add-btn" onclick="document.getElementById(\'edit_add_folder\').click()"><i class="fas fa-folder-plus"></i> โฟลเดอร์</button>';
+    h+='<input type="file" id="edit_add_folder" webkitdirectory directory multiple style="display:none" onchange="handleEditAddFolder(this.files)">';
+    h+='<button type="button" class="edit-add-btn" onclick="toggleEditUrlInput()"><i class="fas fa-link"></i> URL</button>';
+    h+='</div>';
+
+    h+='<div class="edit-url-input-area" id="editUrlInputArea"><textarea id="editUrlTextarea" rows="3" placeholder="วาง URL ทีละบรรทัด"></textarea>';
+    h+='<div class="edit-url-actions"><button type="button" class="edit-url-btn add" onclick="addEditUrls()"><i class="fas fa-plus"></i> เพิ่ม</button>';
+    h+='<button type="button" class="edit-url-btn cancel" onclick="toggleEditUrlInput()"><i class="fas fa-times"></i> ยกเลิก</button></div></div>';
+
+    h+='<div class="edit-upload-progress" id="editUploadProgress"><div class="edit-progress-text"><i class="fas fa-spinner fa-spin"></i> <span id="editProgressText">อัปโหลด...</span></div>';
+    h+='<div class="edit-progress-bar"><div class="edit-progress-fill" id="editProgressFill"></div></div></div></div>';
+
+    c.innerHTML=h;
+  }
+
+  // ===== File Actions =====
+  window.removeEditExistingFile=function(i){var e=document.getElementById('ef-ex-'+i);if(e)e.classList.add('removing');setTimeout(function(){_editExistingFiles.splice(i,1);renderList();},200);};
+  window.removeEditNewFile=function(i){var e=document.getElementById('ef-nf-'+i);if(e)e.classList.add('removing');setTimeout(function(){_editNewFiles.splice(i,1);renderList();},200);};
+  window.removeEditNewUrl=function(i){_editNewUrls.splice(i,1);renderList();};
+
+  window.handleEditAddFiles=function(files){
+    if(!files||!files.length)return;
+    for(var i=0;i<files.length;i++){var dup=false;for(var j=0;j<_editNewFiles.length;j++){if(_editNewFiles[j].name===files[i].name&&_editNewFiles[j].size===files[i].size){dup=true;break;}}if(!dup)_editNewFiles.push(files[i]);}
+    renderList();
+    if(typeof Swal!=='undefined')Swal.fire({toast:true,position:'top-end',icon:'success',title:'เพิ่ม '+files.length+' ไฟล์',showConfirmButton:false,timer:2000});
+  };
+
+  window.handleEditAddFolder=function(files){
+    if(!files)return;var n=0;
+    for(var i=0;i<files.length;i++){if(files[i].name.startsWith('.')||files[i].name==='Thumbs.db'||files[i].name==='desktop.ini')continue;var dup=false;for(var j=0;j<_editNewFiles.length;j++){if(_editNewFiles[j].name===files[i].name&&_editNewFiles[j].size===files[i].size){dup=true;break;}}if(!dup){_editNewFiles.push(files[i]);n++;}}
+    renderList();
+    if(typeof Swal!=='undefined'&&n>0)Swal.fire({toast:true,position:'top-end',icon:'success',title:'📁 เพิ่ม '+n+' ไฟล์',showConfirmButton:false,timer:2000});
+  };
+
+  window.toggleEditUrlInput=function(){var a=document.getElementById('editUrlInputArea');if(a){a.classList.toggle('active');if(a.classList.contains('active')){var t=document.getElementById('editUrlTextarea');if(t)t.focus();}}};
+
+  window.addEditUrls=function(){
+    var ta=document.getElementById('editUrlTextarea');if(!ta||!ta.value.trim())return;
+    var lines=ta.value.trim().split('\n'),n=0;
+    lines.forEach(function(l){var u=l.trim();if(u&&(u.startsWith('http://')||u.startsWith('https://'))){if(!_editNewUrls.some(function(x){return x.url===u;})&&!_editExistingFiles.some(function(x){return(x.url||x.fileUrl)===u;})){_editNewUrls.push({url:u,name:_fname(u)});n++;}}});
+    ta.value='';toggleEditUrlInput();renderList();
+    if(typeof Swal!=='undefined'&&n>0)Swal.fire({toast:true,position:'top-end',icon:'success',title:'เพิ่ม '+n+' URL',showConfirmButton:false,timer:2000});
+  };
+
+  // ===== Upload + Save =====
+  function uploadAndSave(docId){
+    var pDiv=document.getElementById('editUploadProgress'),pText=document.getElementById('editProgressText'),pFill=document.getElementById('editProgressFill');
+    if(pDiv)pDiv.classList.add('active');
+    var uploaded=[],total=_editNewFiles.length,cnt=0;
+    function next(){
+      if(cnt>=total){uploaded.forEach(function(f){_editNewUrls.push({url:f.url||f.fileUrl,name:f.name||f.fileName});});if(pDiv)pDiv.classList.remove('active');doSave(docId);return;}
+      var file=_editNewFiles[cnt];
+      if(pText)pText.textContent='อัปโหลด '+(cnt+1)+'/'+total+': '+file.name;
+      if(pFill)pFill.style.width=((cnt/total)*100)+'%';
+      var reader=new FileReader();
+      reader.onload=function(e){var b64=e.target.result.split(',')[1];
+        google.script.run.withSuccessHandler(function(r){if(r&&r.success)uploaded.push({url:r.fileUrl||r.url,name:r.fileName||file.name});cnt++;if(pFill)pFill.style.width=((cnt/total)*100)+'%';next();})
+        .withFailureHandler(function(){cnt++;next();}).uploadSingleFile(b64,file.name,file.type);};
+      reader.onerror=function(){cnt++;next();};
+      reader.readAsDataURL(file);
+    }
+    next();
+  }
+
+  function doSave(docId){
+    if(typeof showLoading==='function')showLoading('กำลังบันทึก...');
+    var all=[];
+    _editExistingFiles.forEach(function(f){all.push({url:f.url||f.fileUrl||'',name:f.name||f.fileName||''});});
+    _editNewUrls.forEach(function(u){all.push({url:u.url||'',name:u.name||''});});
+    var data={
+      title:document.getElementById('edit_title').value,
+      category:document.getElementById('edit_category').value,
+      document_type:document.getElementById('edit_document_type').value,
+      document_date:document.getElementById('edit_document_date').value,
+      submitter_name:document.getElementById('edit_submitter_name').value,
+      tags:document.getElementById('edit_tags').value,
+      description:document.getElementById('edit_description').value,
+      file_objects_json:all.length>0?JSON.stringify(all):'[]'
+    };
+    google.script.run.withSuccessHandler(function(r){
+      if(typeof hideLoading==='function')hideLoading();
+      if(r&&r.success){closeModal('editModal');if(typeof clearCache==='function')clearCache();if(typeof loadDocuments==='function')loadDocuments(true);if(typeof loadStatistics==='function')loadStatistics();Swal.fire({icon:'success',title:'แก้ไขสำเร็จ!',timer:2500,showConfirmButton:false});}
+      else{Swal.fire({icon:'error',title:'เกิดข้อผิดพลาด',text:(r&&r.error)||'ไม่สามารถบันทึกได้'});}
+    }).withFailureHandler(function(err){if(typeof hideLoading==='function')hideLoading();Swal.fire({icon:'error',title:'ข้อผิดพลาด',text:String(err)});})
+    .updateDocument(docId,data);
+  }
+
+  // =============================================================
+  // ⭐ FIXED fillEditForm + handleEditDocument
+  // =============================================================
+
+  function FIXED_fillEditForm(doc){
+    console.log('📝 fillEditForm v16.5',doc);
+    window._editCurrentDoc=doc;
+    var el=function(id){return document.getElementById(id);};
+    if(el('edit_doc_id'))el('edit_doc_id').value=doc.id;
+    if(el('edit_title'))el('edit_title').value=doc.title||'';
+    _setSelect('edit_category',doc.category||'');
+    _setSelect('edit_document_type',doc.document_type||'');
+    _setSelect('edit_submitter_name',doc.submitter_name||'');
+    if(el('edit_tags'))el('edit_tags').value=doc.tags||'';
+    if(el('edit_description'))el('edit_description').value=doc.description||'';
+    if(el('edit_document_date'))el('edit_document_date').value=parseDateTH(doc.document_date);
+    _editExistingFiles=_parseF(doc.file_objects_json);
+    _editNewFiles=[];
+    _editNewUrls=[];
+    renderList();
+
+    // ลบ note เดิม
+    var note=document.querySelector('#editModal .form-note');
+    if(note)note.remove();
+  }
+
+  function FIXED_handleEditDocument(event){
+    if(event)event.preventDefault();
+    var docId=document.getElementById('edit_doc_id').value;
+    if(!docId&&docId!==0){Swal.fire({icon:'error',title:'ไม่พบ ID'});return;}
+    if(!document.getElementById('edit_title').value.trim()){Swal.fire({icon:'warning',title:'กรุณากรอกชื่อ'});return;}
+    if(_editNewFiles.length>0){uploadAndSave(docId);}else{doSave(docId);}
+  }
+
+  // =============================================================
+  // ⭐⭐⭐ OVERRIDE MECHANISM - 3 ชั้น ป้องกันถูกเขียนทับ
+  // =============================================================
+
+  function applyOverride(){
+    window.fillEditForm = FIXED_fillEditForm;
+    window.handleEditDocument = FIXED_handleEditDocument;
+  }
+
+  // ชั้น 1: Override ทันที
+  applyOverride();
+
+  // ชั้น 2: Override ซ้ำหลัง DOM โหลดเสร็จ + ทุก 1 วิ (15 ครั้ง)
+  function delayOverride(){
+    applyOverride();
+    var n=0;
+    var iv=setInterval(function(){
+      applyOverride();
+      n++;
+      if(n>=15)clearInterval(iv);
+    },1000);
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',delayOverride);}
+  else{delayOverride();}
+
+  // ชั้น 3: ใช้ Object.defineProperty ล็อคฟังก์ชันไม่ให้เขียนทับ
+  // (ทำหลังจาก delay เพื่อให้ script หลักโหลดเสร็จก่อน)
+  setTimeout(function(){
+    try {
+      Object.defineProperty(window, 'fillEditForm', {
+        get: function(){ return FIXED_fillEditForm; },
+        set: function(v){
+          console.log('🛡️ fillEditForm override blocked');
+          // ไม่ให้เขียนทับ
+        },
+        configurable: true
+      });
+      Object.defineProperty(window, 'handleEditDocument', {
+        get: function(){ return FIXED_handleEditDocument; },
+        set: function(v){
+          console.log('🛡️ handleEditDocument override blocked');
+        },
+        configurable: true
+      });
+      console.log('🔒 fillEditForm + handleEditDocument locked');
+    } catch(e){
+      console.warn('defineProperty failed, using interval fallback');
+    }
+  }, 8000); // รอ 8 วินาทีให้ script หลักโหลดเสร็จก่อน lock
+
+  console.log('✅ EditUpload_Fix v16.5 initialized');
+})();
+</script>

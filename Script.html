@@ -1,0 +1,6492 @@
+<script>
+// ===== 🔧 FIX: ป้องกัน Call Stack Overflow (v2.0) =====
+(function() {
+  'use strict';
+  
+  // ประกาศตัวแปร Global ครั้งเดียว
+  if (typeof window.__rktInitialized === 'undefined') {
+    window.__rktInitialized = true;
+    
+    // Global Variables
+    window.currentUploadMethod = 'file';
+    window.selectedFiles = [];
+    window.currentPage = 1;
+    window.pageSize = 10;
+    window.totalPages = 1;
+    window.allDocuments = [];
+    window.filteredDocuments = [];
+    window.currentFilters = {};
+    window.currentView = 'list';
+    window.currentDocFiles = [];
+    window.currentFilePage = 1;
+    
+    console.log('✅ ระบบเริ่มต้นเรียบร้อย');
+  }
+})();
+// ⭐⭐⭐ ย้าย debounce มาไว้ตรงนี้ (ก่อนที่จะถูกเรียกใช้) ⭐⭐⭐
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+</script>
+
+  <script>
+
+// ===== Canonical Utilities (KEEP ONLY THIS BLOCK) =====
+
+// ปลอดภัย/เร็ว พอเพียงกับงานเอกสาร
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+// ⭐ เพิ่มฟังก์ชันนี้
+/**
+ * ตรวจสอบความถูกต้องของ URL
+ */
+function validateUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    // ตรวจสอบว่าเป็น http หรือ https
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * ตรวจสอบว่า URL เป็น Google Drive/Docs หรือไม่
+ */
+function isGoogleUrl(url) {
+  return url.includes('drive.google.com') || 
+         url.includes('docs.google.com');
+}
+
+/**
+ * ตรวจสอบว่า URL สามารถดาวน์โหลดโดยตรงได้หรือไม่
+ */
+function isDirectDownloadUrl(url) {
+  // URL ที่รู้จักว่าดาวน์โหลดได้โดยตรง
+  const directDomains = [
+    'github.com',
+    'raw.githubusercontent.com',
+    'dl.dropboxusercontent.com',
+    'onedrive.live.com',
+    's3.amazonaws.com',
+    'storage.googleapis.com'
+  ];
+  
+  return directDomains.some(domain => url.includes(domain));
+}
+
+// ไอคอนเอกสาร (ครบกว่าเวอร์ชัน switch)
+function getDocIcon(type='') {
+  const map = {
+    'หนังสือราชการ': '📑',
+    'ประกาศ': '📢',
+    'คำสั่ง': '🧾',
+    'รูปภาพ': '🖼️',
+    'ไฟล์เอกสาร': '📄',
+    'แผนการสอน': '📚',
+    'รายงาน': '📘',
+    'เรื่องทั่วไป': '📁'
+  };
+  return map[type?.trim()] || '📁';
+}
+
+// สี badge (ครบกลุ่มมากกว่า)
+function getBadgeClass(type='') {
+  const map = {
+    'หนังสือราชการ': 'badge-internal',
+    'ประกาศ': 'badge-external',
+    'คำสั่ง': 'badge-urgent',
+    'รูปภาพ': 'badge-normal',
+    'ไฟล์เอกสาร': 'badge-normal',
+    'แผนการสอน': 'badge-internal',
+    'รายงาน': 'badge-external',
+    'เรื่องทั่วไป': 'badge-normal'
+  };
+  return map[type?.trim()] || 'badge-normal';
+}
+
+// สลับแท็บอัปโหลด + เคลียร์อีกฝั่งอัตโนมัติ
+function switchUploadTab(method) {
+  const m = method === 'url' ? 'url' : 'file';
+  const fileTabBtn = document.getElementById('fileTabBtn');
+  const urlTabBtn  = document.getElementById('urlTabBtn');
+  const fileSec    = document.getElementById('fileUploadSection');
+  const urlSec     = document.getElementById('urlUploadSection');
+
+  fileTabBtn?.classList.toggle('active', m === 'file');
+  urlTabBtn?.classList.toggle('active',  m === 'url');
+  if (fileSec) fileSec.style.display = (m === 'file') ? 'block' : 'none';
+  if (urlSec)  urlSec.style.display  = (m === 'url')  ? 'block' : 'none';
+
+  // เคลียร์อินพุตฝั่งที่ไม่ได้ใช้งาน
+  if (m === 'file') removeUrlFiles();
+  else              removeAllFiles?.();
+  
+  // ⭐ เก็บสถานะ (สำคัญ!)
+  window.currentUploadMethod = m;
+  
+  console.log('🔄 สลับแท็บอัปโหลด:', m);  // ⭐ เพิ่ม log
+  console.log('📌 currentUploadMethod:', window.currentUploadMethod);  // ⭐ เพิ่ม log
+}
+
+function initDragAndDrop() {
+  const area = document.getElementById('fileUploadArea');
+  const fileInput = document.getElementById('add_file');
+  const fileInputMore = document.getElementById('add_file_more');
+  
+  if (!area) return;
+  
+  // ⭐ ลบ event listener เก่าก่อน (ป้องกันซ้ำ)
+  if (area.__dragDropBound) return;
+  area.__dragDropBound = true;
+  
+  ['dragenter', 'dragover'].forEach(evt => {
+    area.addEventListener(evt, handleDragOver, false);
+  });
+  
+  ['dragleave', 'drop'].forEach(evt => {
+    area.addEventListener('dragleave', handleDragLeave, false);
+  });
+  
+  area.addEventListener('drop', handleDrop, false);
+  
+  if (fileInput && !fileInput.__changeBound) {
+    fileInput.addEventListener('change', e => addFilesToList(e.target.files));
+    fileInput.__changeBound = true;
+  }
+  
+  if (fileInputMore && !fileInputMore.__changeBound) {
+    fileInputMore.addEventListener('change', e => addFilesToList(e.target.files));
+    fileInputMore.__changeBound = true;
+  }
+}
+
+// ฟังก์ชันช่วย
+function handleDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.remove('drag-over');
+  if (e.dataTransfer?.files?.length) {
+    addFilesToList(e.dataTransfer.files);
+  }
+}
+
+
+// เปิด Google Form + เซ็ต flag เพื่อ auto-refresh เมื่อกลับหน้า
+// (รวมพฤติกรรมแสดง Swal + เปิดแท็บใหม่ + บันทึกเวลา)
+function openGoogleForm() {
+  const formUrl = 'https://forms.gle/HLDaND9apWxmENLh6';
+  formSubmitTime = Date.now();
+  Swal.fire({
+    title: 'เปิด Google Form',
+    html: '<b>กรุณาส่งฟอร์มให้เรียบร้อย</b><br>เมื่อกลับมา ระบบจะอัปเดตข้อมูลอัตโนมัติ',
+    icon: 'info',
+    timer: 2000,
+    showConfirmButton: false,
+    timerProgressBar: true
+    // ❌ อย่าใช้ Swal.showLoading() ที่นี่
+  });
+  setTimeout(() => window.open(formUrl, '_blank', 'noopener,noreferrer'), 500);
+}
+
+// แสดงตัวอย่าง URL ที่วาง + ปุ่มลบทีละบรรทัด
+function previewUrls() {
+  const input   = document.getElementById('urlInput');
+  const listBox = document.getElementById('urlFileDisplay');
+  const list    = document.getElementById('urlListContainer');
+  if (!input || !listBox || !list) return;
+
+  const urls = input.value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (urls.length === 0) {
+    list.innerHTML = '';
+    listBox.style.display = 'none';
+    return;
+  }
+
+  list.innerHTML = urls.map((u, i) => `
+    <div class="file-list-item">
+      <div class="file-icon">🔗</div>
+      <div class="file-details">
+        <div class="file-name">${escapeHtml(u)}</div>
+        <div class="file-size">URL #${i+1}</div>
+      </div>
+      <button type="button" class="remove-file-btn" onclick="removeUrlLine(${i})">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  `).join('');
+  listBox.style.display = 'block';
+}
+
+function removeUrlLine(index) {
+  const input = document.getElementById('urlInput');
+  if (!input) return;
+  const urls = input.value.split('\n');
+  urls.splice(index, 1);
+  input.value = urls.join('\n');
+  previewUrls();
+}
+
+// ล้าง URL ทั้งชุด + UI ที่เกี่ยวข้อง
+function removeUrlFiles() {
+  const urlInput        = document.getElementById('urlInput');
+  const urlFileDisplay  = document.getElementById('urlFileDisplay');
+  const urlListContainer= document.getElementById('urlListContainer');
+  if (urlInput)        urlInput.value = '';
+  if (urlListContainer)urlListContainer.innerHTML = '';
+  if (urlFileDisplay)  urlFileDisplay.style.display = 'none';
+}
+
+
+// ===== 🔧 Configuration =====
+const SPREADSHEET_ID = '19Dr60-P9DgtaAc_3tJIABuNf_GVEttXHQYbDMnl7PVs';
+const SHEET_NAME = 'การตอบแบบฟอร์ม 1';
+
+// Global Variables (ประกาศครั้งเดียว)
+let currentPage = 1;
+const pageSize = 10;
+let totalPages = 1;
+
+let allDocuments = [];
+let filteredDocuments = [];
+
+let currentFilters = {};
+let currentView = 'list';
+
+// Pagination ไฟล์ใน View Modal
+let currentFilePage = 1;
+let currentDocFiles = [];
+const FILES_PER_PAGE = 8;
+
+// ===== เพิ่มส่วนนี้หลังบรรทัด let currentUploadMethod = 'file'; =====
+
+// 📦 Cache System
+let documentsCache = {
+  data: null,           // เก็บข้อมูล
+  timestamp: null,      // เก็บเวลาที่โหลด
+  filters: null,        // เก็บ filters ที่ใช้
+  page: null           // เก็บหน้าที่โหลด
+};
+
+const CACHE_DURATION = 60000; // 1 นาที (60,000 มิลลิวินาที)
+
+
+// === NEW: multi-page cache ===
+const pageCache = new Map(); // key -> { data, totalPages, timestamp }
+
+function cacheKey(page, filters) {
+  return JSON.stringify({ page, filters: filters || {} });
+}
+
+function isCacheValidFor(page, filters) {
+  const k = cacheKey(page, normalizeFilters(filters));
+  const entry = pageCache.get(k);
+  
+  if (!entry) {
+    console.log('❌ ไม่มี Cache สำหรับ:', k);
+    return false;
+  }
+  
+  const age = Date.now() - entry.timestamp;
+  const isValid = age <= CACHE_DURATION;
+  
+  console.log('🔍 Cache Check:', {
+    key: k,
+    age: Math.round(age / 1000) + 's',
+    isValid,
+    dataCount: entry.data?.length
+  });
+  
+  return isValid;
+}
+
+function saveToCache(data, page, filters, totalPages, total) {
+  const k = cacheKey(page, filters);
+  pageCache.set(k, { 
+    data, 
+    totalPages, 
+    total: total || data.length,  // ⭐ เก็บ total
+    timestamp: Date.now() 
+  });
+  console.log('💾 Save to Cache:', { 
+    key: k, 
+    items: data.length, 
+    total: total,          // ⭐ แสดงใน log
+    totalPages 
+  });
+}
+
+function getFromCache(page, filters) {
+  const c = pageCache.get(cacheKey(page, filters));
+  
+  if (c) {
+    console.log('📦 Get from Cache:', { 
+      items: c.data?.length || 0, 
+      total: c.total || 0,        // ⭐ แสดงใน log
+      totalPages: c.totalPages 
+    });
+  } else {
+    console.log('❌ No cache found');
+  }
+  
+  return c;
+}
+
+function clearCache() {
+  pageCache.clear();
+  console.log('🗑️ ล้าง Cache ทั้งหมด');
+  
+  // ⭐ เพิ่ม: ล้าง search cache ด้วย
+  if (typeof searchCache !== 'undefined') {
+    searchCache.clear();
+    console.log('🗑️ ล้าง Search Cache');
+  }
+}
+
+// ⭐ เก็บข้อมูลผู้ใช้และสิทธิ์
+let currentUserEmail = '';
+let isAdmin = false;
+let userDataLoaded = false;
+
+// ⭐ ฟังก์ชันโหลดข้อมูลผู้ใช้
+function loadCurrentUser() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        currentUserEmail = result.email || '';
+        isAdmin = result.isAdmin || false;
+        userDataLoaded = true;
+        
+        console.log('👤 ผู้ใช้:', currentUserEmail);
+        console.log('🔐 Admin:', isAdmin ? 'ใช่' : 'ไม่ใช่');
+        
+        // Render ใหม่ถ้ามีเอกสารแสดงอยู่
+        if (allDocuments.length > 0) {
+          renderDocuments(filteredDocuments.length ? filteredDocuments : allDocuments);
+        }
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('❌ ไม่สามารถโหลดข้อมูลผู้ใช้:', error);
+      userDataLoaded = true;
+      isAdmin = false;
+    })
+    .getCurrentUser();
+}
+console.log('Initial Current View:', currentView);  // Debug: เช็ค default view
+// ===== 📅 Date Filter & Sort System =====
+let currentSortOrder = 'desc';
+
+function initYearFilter() {
+  const yearFilter = document.getElementById('yearFilter');
+  if (!yearFilter) {
+    console.warn('⚠️ ไม่พบ element #yearFilter');
+    return;
+  }
+  
+  const currentYear = new Date().getFullYear();
+  const startYear = 2020;
+  
+  yearFilter.innerHTML = '<option value="">ทุกปี</option>';
+  
+  for (let year = currentYear; year >= startYear; year--) {
+    const option = document.createElement('option');
+    option.value = year;
+    option.textContent = (year + 543);
+    yearFilter.appendChild(option);
+  }
+  
+  console.log('✅ สร้างตัวเลือกปี:', startYear, '-', currentYear);
+}
+
+function handleDateFilterTypeChange() {
+  const filterType = document.getElementById('dateFilterType');
+  const quickPreset = document.getElementById('quickDatePreset');
+  const monthYearSelectors = document.getElementById('monthYearSelectors');
+  const customInputs = document.getElementById('customDateInputs');
+  
+  if (!filterType) return;
+  
+  const value = filterType.value;
+  
+  if (quickPreset) quickPreset.style.display = 'none';
+  if (monthYearSelectors) monthYearSelectors.style.display = 'none';
+  if (customInputs) customInputs.style.display = 'none';
+  
+  // รีเซ็ตค่า
+  if (quickPreset) quickPreset.value = '';
+  
+  const monthFilter = document.getElementById('monthFilter');
+  const yearFilter = document.getElementById('yearFilter');
+  const startDateFilter = document.getElementById('startDateFilter');
+  const endDateFilter = document.getElementById('endDateFilter');
+  
+  if (monthFilter) monthFilter.value = '';
+  if (yearFilter) yearFilter.value = '';
+  if (startDateFilter) startDateFilter.value = '';
+  if (endDateFilter) endDateFilter.value = '';
+  
+  switch(value) {
+    case 'all':
+      delete currentFilters.startDate;
+      delete currentFilters.endDate;
+      delete currentFilters.datePreset;
+      currentPage = 1;
+      clearCache();
+      loadDocuments(true);
+      break;
+      
+    case 'quick':
+      if (quickPreset) quickPreset.style.display = 'block';
+      break;
+      
+    case 'month-year':
+      if (monthYearSelectors) monthYearSelectors.style.display = 'flex';
+      break;
+      
+    case 'custom':
+      if (customInputs) customInputs.style.display = 'flex';
+      break;
+  }
+  
+  console.log('🔄 เปลี่ยน Filter Type:', value);
+}
+
+function applyQuickDatePreset() {
+  const preset = document.getElementById('quickDatePreset');
+  if (!preset) return;
+  
+  const value = preset.value;
+  if (!value) return;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  let start, end;
+  
+  switch(value) {
+    case 'today':
+      start = new Date(today);
+      end = new Date(today);
+      break;
+      
+    case 'week':
+      const dayOfWeek = today.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      
+      start = new Date(today);
+      start.setDate(today.getDate() + mondayOffset);
+      
+      end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      break;
+      
+    case 'month':
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+      end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      break;
+      
+    case 'year':
+      start = new Date(today.getFullYear(), 0, 1);
+      end = new Date(today.getFullYear(), 11, 31);
+      break;
+      
+    default:
+      return;
+  }
+  
+  currentFilters.startDate = formatDateForInput(start);
+  currentFilters.endDate = formatDateForInput(end);
+  currentFilters.datePreset = value;
+  
+  currentPage = 1;
+  clearCache();
+  loadDocuments(true);
+  
+  console.log('📅 Quick Preset:', value);
+}
+
+function applyMonthYearFilter() {
+  const monthFilter = document.getElementById('monthFilter');
+  const yearFilter = document.getElementById('yearFilter');
+  
+  if (!monthFilter || !yearFilter) return;
+  
+  const month = monthFilter.value;
+  const year = yearFilter.value;
+  
+  console.log('📅 เลือกเดือน-ปี:', { month: month, year: year });
+  
+  if (!month && !year) {
+    delete currentFilters.startDate;
+    delete currentFilters.endDate;
+    delete currentFilters.datePreset;
+    
+  } else if (month && year) {
+    const monthNum = parseInt(month) - 1;
+    const yearNum = parseInt(year);
+    
+    const start = new Date(yearNum, monthNum, 1);
+    const end = new Date(yearNum, monthNum + 1, 0);
+    
+    currentFilters.startDate = formatDateForInput(start);
+    currentFilters.endDate = formatDateForInput(end);
+    currentFilters.datePreset = 'month-year';
+    
+  } else if (year) {
+    const yearNum = parseInt(year);
+    
+    const start = new Date(yearNum, 0, 1);
+    const end = new Date(yearNum, 11, 31);
+    
+    currentFilters.startDate = formatDateForInput(start);
+    currentFilters.endDate = formatDateForInput(end);
+    currentFilters.datePreset = 'year-only';
+    
+  } else if (month) {
+    Swal.fire({
+      icon: 'info',
+      title: 'กรุณาเลือกปีด้วย',
+      text: 'ต้องเลือกปีเมื่อเลือกเดือน',
+      timer: 2000,
+      showConfirmButton: false
+    });
+    
+    monthFilter.value = '';
+    return;
+  }
+  
+  currentPage = 1;
+  clearCache();
+  loadDocuments(true);
+}
+
+function applyCustomDateFilter() {
+  const startDateFilter = document.getElementById('startDateFilter');
+  const endDateFilter = document.getElementById('endDateFilter');
+  
+  if (!startDateFilter || !endDateFilter) return;
+  
+  const startDate = startDateFilter.value;
+  const endDate = endDateFilter.value;
+  
+  console.log('📅 กรองตามวันที่กำหนดเอง:', { startDate: startDate, endDate: endDate });
+  
+  if (!startDate && !endDate) {
+    delete currentFilters.startDate;
+    delete currentFilters.endDate;
+    delete currentFilters.datePreset;
+  } else {
+    currentFilters.startDate = startDate || null;
+    currentFilters.endDate = endDate || null;
+    currentFilters.datePreset = 'custom';
+  }
+  
+  currentPage = 1;
+  clearCache();
+  loadDocuments(true);
+}
+
+function toggleSortOrder() {
+  currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+  
+  const btn = document.getElementById('sortOrderBtn');
+  const text = document.getElementById('sortOrderText');
+  
+  if (!btn || !text) return;
+  
+  const icon = btn.querySelector('i');
+  
+  if (currentSortOrder === 'desc') {
+    if (icon) icon.className = 'fas fa-sort-amount-down';
+    text.textContent = 'ล่าสุดก่อน';
+    btn.classList.remove('active');
+  } else {
+    if (icon) icon.className = 'fas fa-sort-amount-up';
+    text.textContent = 'เก่าสุดก่อน';
+    btn.classList.add('active');
+  }
+  
+  currentPage = 1;
+  clearCache();
+  loadDocuments(true);
+  
+  console.log('🔄 เรียงลำดับ:', currentSortOrder === 'desc' ? 'ล่าสุดก่อน' : 'เก่าสุดก่อน');
+}
+
+function formatDateForInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return year + '-' + month + '-' + day;
+}
+// ===== END Date Filter System =====
+// ===== Advanced Filter System =====
+
+let advancedFilters = {
+  submitter: null,
+  tag: null,
+  fileType: null,
+  status: null
+};
+
+/**
+ * Toggle Advanced Filter Panel
+ */
+function toggleAdvancedFilters() {
+  const panel = document.getElementById('advancedFilterPanel');
+  const btn = document.getElementById('btnAdvancedFilter');
+  
+  if (!panel || !btn) return;
+  
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    btn.classList.add('active');
+    
+    // โหลดตัวเลือก
+    loadSubmitterOptions();
+    loadTagOptions();
+    
+  } else {
+    panel.style.display = 'none';
+    btn.classList.remove('active');
+  }
+}
+
+/**
+ * โหลดตัวเลือกผู้ส่ง
+ */
+function loadSubmitterOptions() {
+  const select = document.getElementById('submitterFilter');
+  if (!select || select.options.length > 1) return;
+  
+  const submitters = [...new Set(allDocuments.map(d => d.submitter_name).filter(Boolean))];
+  
+  submitters.sort().forEach(name => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+  
+  console.log('✅ โหลดผู้ส่ง:', submitters.length, 'คน');
+}
+
+/**
+ * โหลดตัวเลือกแท็ก
+ */
+function loadTagOptions() {
+  const select = document.getElementById('tagFilter');
+  if (!select || select.options.length > 1) return;
+  
+  const allTags = new Set();
+  allDocuments.forEach(doc => {
+    if (doc.tags) {
+      doc.tags.split(',').forEach(tag => {
+        const t = tag.trim();
+        if (t) allTags.add(t);
+      });
+    }
+  });
+  
+  [...allTags].sort().forEach(tag => {
+    const option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    select.appendChild(option);
+  });
+  
+  console.log('✅ โหลดแท็ก:', allTags.size, 'แท็ก');
+}
+
+/**
+ * ใช้ตัวกรองขั้นสูง
+ */
+function applyAdvancedFilters() {
+  console.log('🔍 กำลังใช้ตัวกรองขั้นสูง...');
+  
+  // อ่านค่าจาก UI
+  advancedFilters.submitter = document.getElementById('submitterFilter')?.value || null;
+  advancedFilters.tag = document.getElementById('tagFilter')?.value || null;
+  advancedFilters.fileType = document.getElementById('fileTypeFilter')?.value || null;
+  advancedFilters.status = document.getElementById('statusFilter')?.value || null;
+  
+  // กรองข้อมูล (เริ่มจาก allDocuments)
+  let filtered = [...allDocuments];
+  
+  // 1. หมวดหมู่ (จาก filter เดิม)
+  if (currentFilters.category) {
+    filtered = filtered.filter(doc => doc.category === currentFilters.category);
+  }
+  
+  // 2. ประเภทเอกสาร (จาก filter เดิม)
+  if (currentFilters.type) {
+    filtered = filtered.filter(doc => doc.document_type === currentFilters.type);
+  }
+  
+  // 3. ผู้ส่ง
+  if (advancedFilters.submitter) {
+    filtered = filtered.filter(doc => doc.submitter_name === advancedFilters.submitter);
+  }
+  
+  // 4. แท็ก
+  if (advancedFilters.tag) {
+    filtered = filtered.filter(doc => {
+      if (!doc.tags) return false;
+      const tags = doc.tags.split(',').map(t => t.trim().toLowerCase());
+      return tags.includes(advancedFilters.tag.toLowerCase());
+    });
+  }
+  
+  // 5. ชนิดไฟล์
+  if (advancedFilters.fileType) {
+    filtered = filtered.filter(doc => {
+      if (!doc.file_objects_json) return false;
+      try {
+        const files = JSON.parse(doc.file_objects_json);
+        if (!Array.isArray(files)) return false;
+        
+        return files.some(f => {
+          const ext = (f.name || '').split('.').pop().toLowerCase();
+          return matchFileType(ext, advancedFilters.fileType);
+        });
+      } catch (e) {
+        return false;
+      }
+    });
+  }
+  
+  // 6. สถานะ
+  if (advancedFilters.status) {
+    filtered = filtered.filter(doc => {
+      switch (advancedFilters.status) {
+        case 'has-file':
+          return doc.file_objects_json && doc.file_objects_json !== '[]' && doc.file_objects_json !== '';
+        case 'no-file':
+          return !doc.file_objects_json || doc.file_objects_json === '[]' || doc.file_objects_json === '';
+        case 'has-note':
+          return doc.description && doc.description.trim().length > 0;
+        case 'no-note':
+          return !doc.description || doc.description.trim().length === 0;
+        default:
+          return true;
+      }
+    });
+  }
+  
+  // 7. วันที่ (จาก currentFilters)
+  if (currentFilters.startDate || currentFilters.endDate) {
+    filtered = filtered.filter(doc => {
+      if (!doc.created_at) return false;
+      const docDate = new Date(doc.created_at);
+      
+      if (currentFilters.startDate) {
+        const start = new Date(currentFilters.startDate);
+        start.setHours(0, 0, 0, 0);
+        if (docDate < start) return false;
+      }
+      
+      if (currentFilters.endDate) {
+        const end = new Date(currentFilters.endDate);
+        end.setHours(23, 59, 59, 999);
+        if (docDate > end) return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  // 8. ค้นหา (จาก currentFilters)
+  if (currentFilters.searchTerm) {
+    const term = currentFilters.searchTerm.toLowerCase();
+    filtered = filtered.filter(doc => {
+      return (
+        (doc.title || '').toLowerCase().includes(term) ||
+        (doc.submitter_name || '').toLowerCase().includes(term) ||
+        (doc.description || '').toLowerCase().includes(term) ||
+        (doc.tags || '').toLowerCase().includes(term)
+      );
+    });
+  }
+  
+  // เรียงลำดับ
+  filtered.sort((a, b) => {
+    const dateA = new Date(a.created_at || 0);
+    const dateB = new Date(b.created_at || 0);
+    return currentSortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+  });
+  
+  // แสดงผล
+  filteredDocuments = filtered;
+  renderDocuments(filtered);
+  
+  // อัปเดตจำนวนผลลัพธ์
+  const resultCount = document.getElementById('resultCount');
+  if (resultCount) {
+    resultCount.textContent = filtered.length;
+  }
+  
+  // แสดง Active Filters
+  displayActiveFilters();
+  
+  // อัปเดต Badge จำนวนตัวกรอง
+  updateFilterCount();
+  
+  console.log('✅ พบ', filtered.length, 'รายการ');
+}
+
+/**
+ * จับคู่ชนิดไฟล์
+ */
+function matchFileType(extension, filterType) {
+  const typeMap = {
+    'pdf': ['pdf'],
+    'doc': ['doc', 'docx'],
+    'xls': ['xls', 'xlsx', 'csv'],
+    'ppt': ['ppt', 'pptx'],
+    'image': ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'],
+    'video': ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'wmv', 'm4v']
+  };
+  
+  const extensions = typeMap[filterType] || [];
+  return extensions.includes(extension);
+}
+
+/**
+ * แสดงตัวกรองที่ใช้งานอยู่
+ */
+function displayActiveFilters() {
+  const container = document.getElementById('activeFilters');
+  if (!container) return;
+  
+  const filters = [];
+  
+  if (currentFilters.category) {
+    filters.push({
+      icon: 'fa-folder',
+      label: 'หมวดหมู่',
+      value: currentFilters.category,
+      key: 'category'
+    });
+  }
+  
+  if (currentFilters.type) {
+    filters.push({
+      icon: 'fa-file-alt',
+      label: 'ประเภท',
+      value: currentFilters.type,
+      key: 'type'
+    });
+  }
+  
+  if (advancedFilters.submitter) {
+    filters.push({
+      icon: 'fa-user',
+      label: 'ผู้ส่ง',
+      value: advancedFilters.submitter,
+      key: 'submitter'
+    });
+  }
+  
+  if (advancedFilters.tag) {
+    filters.push({
+      icon: 'fa-tag',
+      label: 'แท็ก',
+      value: advancedFilters.tag,
+      key: 'tag'
+    });
+  }
+  
+  if (advancedFilters.fileType) {
+    const fileTypeLabels = {
+      'pdf': 'PDF',
+      'doc': 'Word',
+      'xls': 'Excel',
+      'ppt': 'PowerPoint',
+      'image': 'รูปภาพ',
+      'video': 'วิดีโอ'
+    };
+    filters.push({
+      icon: 'fa-file',
+      label: 'ชนิดไฟล์',
+      value: fileTypeLabels[advancedFilters.fileType] || advancedFilters.fileType,
+      key: 'fileType'
+    });
+  }
+  
+  if (advancedFilters.status) {
+    const statusLabels = {
+      'has-file': 'มีไฟล์แนบ',
+      'no-file': 'ไม่มีไฟล์แนบ',
+      'has-note': 'มีหมายเหตุ',
+      'no-note': 'ไม่มีหมายเหตุ'
+    };
+    filters.push({
+      icon: 'fa-info-circle',
+      label: 'สถานะ',
+      value: statusLabels[advancedFilters.status] || advancedFilters.status,
+      key: 'status'
+    });
+  }
+  
+  if (currentFilters.startDate || currentFilters.endDate) {
+    const start = currentFilters.startDate ? new Date(currentFilters.startDate).toLocaleDateString('th-TH', {year: 'numeric', month: 'short', day: 'numeric'}) : '';
+    const end = currentFilters.endDate ? new Date(currentFilters.endDate).toLocaleDateString('th-TH', {year: 'numeric', month: 'short', day: 'numeric'}) : '';
+    filters.push({
+      icon: 'fa-calendar',
+      label: 'วันที่',
+      value: start && end ? `${start} - ${end}` : start || end,
+      key: 'date'
+    });
+  }
+  
+  if (filters.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  
+  container.innerHTML = filters.map(f => `
+    <div class="filter-pill">
+      <i class="fas ${f.icon}"></i>
+      <span><strong>${f.label}:</strong> ${escapeHtml(f.value)}</span>
+      <button class="remove-filter" onclick="removeAdvancedFilter('${f.key}')" aria-label="ลบตัวกรอง">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  `).join('');
+  
+  container.style.display = 'flex';
+}
+
+/**
+ * ลบตัวกรองทีละตัว
+ */
+function removeAdvancedFilter(key) {
+  switch (key) {
+    case 'category':
+      document.getElementById('categoryFilter').value = '';
+      currentFilters.category = null;
+      break;
+    case 'type':
+      document.getElementById('typeFilter').value = '';
+      currentFilters.type = null;
+      break;
+    case 'submitter':
+      document.getElementById('submitterFilter').value = '';
+      advancedFilters.submitter = null;
+      break;
+    case 'tag':
+      document.getElementById('tagFilter').value = '';
+      advancedFilters.tag = null;
+      break;
+    case 'fileType':
+      document.getElementById('fileTypeFilter').value = '';
+      advancedFilters.fileType = null;
+      break;
+    case 'status':
+      document.getElementById('statusFilter').value = '';
+      advancedFilters.status = null;
+      break;
+    case 'date':
+      document.getElementById('dateFilterType').value = 'all';
+      handleDateFilterTypeChange();
+      currentFilters.startDate = null;
+      currentFilters.endDate = null;
+      break;
+  }
+  
+  applyAdvancedFilters();
+}
+
+/**
+ * ล้างตัวกรองขั้นสูง
+ */
+function clearAdvancedFilters() {
+  console.log('🗑️ ล้างตัวกรองทั้งหมด');
+  
+  // ล้าง Select ขั้นสูง
+  document.getElementById('submitterFilter').value = '';
+  document.getElementById('tagFilter').value = '';
+  document.getElementById('fileTypeFilter').value = '';
+  document.getElementById('statusFilter').value = '';
+  
+  // ล้าง Select พื้นฐาน
+  document.getElementById('categoryFilter').value = '';
+  document.getElementById('typeFilter').value = '';
+  document.getElementById('dateFilterType').value = 'all';
+  document.getElementById('searchInput').value = '';
+  
+  // ล้าง Date Filters
+  handleDateFilterTypeChange();
+  
+  // รีเซ็ต Object
+  advancedFilters = {
+    submitter: null,
+    tag: null,
+    fileType: null,
+    status: null
+  };
+  
+  currentFilters = {};
+  
+  // โหลดข้อมูลใหม่
+  filteredDocuments = [...allDocuments];
+  renderDocuments(allDocuments);
+  
+  // ซ่อน Active Filters
+  const activeFilters = document.getElementById('activeFilters');
+  if (activeFilters) {
+    activeFilters.style.display = 'none';
+  }
+  
+  // อัปเดต Badge
+  updateFilterCount();
+  
+  // ซ่อน Panel
+  const panel = document.getElementById('advancedFilterPanel');
+  const btn = document.getElementById('btnAdvancedFilter');
+  if (panel) panel.style.display = 'none';
+  if (btn) btn.classList.remove('active');
+}
+
+/**
+ * อัปเดตจำนวนตัวกรองที่ใช้งาน
+ */
+function updateFilterCount() {
+  const badge = document.getElementById('filterCount');
+  if (!badge) return;
+  
+  let count = 0;
+  
+  if (currentFilters.category) count++;
+  if (currentFilters.type) count++;
+  if (advancedFilters.submitter) count++;
+  if (advancedFilters.tag) count++;
+  if (advancedFilters.fileType) count++;
+  if (advancedFilters.status) count++;
+  if (currentFilters.startDate || currentFilters.endDate) count++;
+  
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ===== END Advanced Filter System =====
+
+// ===== Initialize on page load =====
+window.onload = function() {
+  // ⭐ เริ่มต้นระบบทั้งหมด
+  loadCurrentUser();
+  initSearchWorker();
+  initYearFilter();        // ⭐ เพิ่มบรรทัดนี้ (สำหรับ Date Filter)
+  loadStatistics();
+  loadDocuments();
+  loadSubmitters();
+  initDragAndDrop();
+  const searchInput = document.getElementById('searchInput');
+  
+  // ⭐ สร้าง debounced search function ครั้งเดียว
+  const debouncedSearch = debounce(handleSearch, 400);
+  
+  // Search Input Event
+  searchInput.addEventListener('input', function() {
+    toggleClearButton();
+    
+    const value = this.value.trim();
+    
+    // ⭐ ถ้าลบจนหมด ให้แสดงทั้งหมดทันที
+    if (!value) {
+      removeBadge();
+      currentFilters.searchTerm = '';
+      
+      if (!currentFilters.category && !currentFilters.type) {
+        filteredDocuments = [...allDocuments];
+        renderDocuments(filteredDocuments);
+        return; // ⭐ ไม่ต้อง debounce
+      }
+    }
+    
+    // ⭐ ใช้ debounced function
+    debouncedSearch();
+  });
+  
+  // Search on Enter
+  searchInput.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  });
+  
+  // Filter Events
+  document.getElementById('categoryFilter').addEventListener('change', handleFilterChange);
+  document.getElementById('typeFilter').addEventListener('change', handleFilterChange);
+  
+  // ⭐ Upload Tabs Event Listeners
+  const fileTabBtn = document.getElementById('fileTabBtn');
+  const urlTabBtn = document.getElementById('urlTabBtn');
+  
+  if (fileTabBtn) {
+    fileTabBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      switchUploadTab('file');
+      console.log('✅ คลิกแท็บ File');
+    });
+  }
+  
+  if (urlTabBtn) {
+    urlTabBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      switchUploadTab('url');
+      console.log('✅ คลิกแท็บ URL');
+    });
+  }
+  
+  console.log('✅ ระบบเริ่มต้นเรียบร้อย');
+};
+
+ // ⭐ เพิ่มฟังก์ชันนี้
+function highlightText(text, searchTerm) {
+  if (!searchTerm || !text) return escapeHtml(text);
+  
+  const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+  return escapeHtml(text).replace(regex, '<mark style="background:#ffeb3b;padding:2px 4px;border-radius:3px;">$1</mark>');
+}
+
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}   
+
+
+// ⭐ Handle orientation change
+window.addEventListener('orientationchange', debounce(function() {
+  const activeModal = document.querySelector('.modal.active');
+  if (activeModal) {
+    const modalContent = activeModal.querySelector('.modal-content');
+    if (modalContent) {
+      // Recalculate modal height
+      modalContent.style.height = '100vh';
+    }
+  }
+}, 200));
+
+// ⭐ Console log สำหรับ Debug (ลบออกได้ใน Production)
+console.log('📱 Mobile Modal Improvements Loaded');
+console.log('Device:', /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop');
+console.log('Screen Size:', window.innerWidth + 'x' + window.innerHeight);
+    
+function switchView(view) {
+  currentView = view;
+  
+  // อัปเดตปุ่มบน Desktop
+  document.getElementById('gridViewBtn')?.classList.toggle('active', view === 'grid');
+  document.getElementById('listViewBtn')?.classList.toggle('active', view === 'list');
+  
+  // อัปเดตปุ่มใน Settings Modal
+  document.getElementById('optGrid')?.classList.toggle('active', view === 'grid');
+  document.getElementById('optList')?.classList.toggle('active', view === 'list');
+  
+  // บันทึก localStorage
+  const settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  settings.view = view;
+  localStorage.setItem('rktSettings', JSON.stringify(settings));
+  
+  renderDocuments(filteredDocuments && filteredDocuments.length ? filteredDocuments : allDocuments);
+}
+
+/** เรียก GAS แบบ safe: ไม่ให้ผุด OAuth dialog ตอนโหลดหน้า */
+function runSafe(fnName, args = [], onOk = () => {}, onFail = () => {}) {
+  if (!window.google || !google.script || !google.script.run) {
+    console.warn('not Apps Script webapp context');
+    onFail(new Error('Not GAS context'));
+    return;
+  }
+  // จับ error แล้ว "ไม่เปิด dialog" ซ้ำ
+  google.script.run
+    .withSuccessHandler(onOk)
+    .withFailureHandler(function (err) {
+      const msg = (err && err.message) || '';
+      // ลักษณะข้อความที่บอกว่าต้องขอสิทธิ์/authorize
+      const needsAuth =
+        /authorize|Authorization|needs your permission|Please authorize/i.test(msg);
+      if (needsAuth) {
+        console.warn('Blocked an auth-required call on load:', fnName, msg);
+        // TODO: โชว์ปุ่มให้ผู้ใช้กดเพื่อเริ่มคอลล์นี้แทน (ดูข้อ 2)
+        onFail(new Error('AUTH_REQUIRED'));
+        return;
+      }
+      onFail(err);
+    })[fnName].apply(null, args);
+}
+    
+    // Load Statistics
+    function loadStatistics() {
+      // ตรวจสอบว่าอยู่ใน Google Apps Script หรือไม่
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        console.log('⚠️ loadStatistics: ไม่ได้อยู่ใน Google Apps Script');
+        return;
+      }
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            const stats = result.data;
+            document.getElementById('totalDocs').textContent = stats.totalDocs || 0;
+            document.getElementById('todayDocs').textContent = stats.todayDocs || 0;
+            document.getElementById('categoriesCount').textContent = stats.categoriesCount || 0;
+            document.getElementById('submittersCount').textContent = stats.submittersCount || 0;
+          }
+        })
+        .getStatistics();
+    }
+    
+   // ===== แทนที่ฟังก์ชัน loadDocuments เดิมทั้งหมด =====
+function loadDocuments(forceRefresh = false, { suppressOverlay = false } = {}) {
+  // ✅ ตรวจสอบว่าอยู่ใน Google Apps Script หรือไม่
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    console.log('⚠️ ไม่ได้อยู่ใน Google Apps Script');
+    const container = document.getElementById('documentsView');
+    if (container) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i>
+          <h3>ไม่สามารถโหลดข้อมูลได้</h3>
+          <p>กรุณาเปิดใช้งานผ่าน Google Apps Script</p>
+        </div>`;
+    }
+    return;
+  }
+
+  // ✅ ถ้าต้องการรีเฟรช/เปลี่ยนตัวกรอง/สลับลำดับ ให้เริ่มที่หน้า 1 เสมอ
+  if (forceRefresh) {
+    currentPage = 1;
+  }
+
+  // ✅ รับลำดับการเรียง: ค่าเริ่มต้นเป็น 'desc' = ล่าสุดก่อน
+  const resolvedSortOrder =
+    (typeof currentSortOrder === 'string' && currentSortOrder.toLowerCase() === 'asc')
+      ? 'asc'
+      : 'desc';
+
+  const cleanFilters = {
+    category: currentFilters.category || null,
+    type: currentFilters.type || null,
+    searchTerm: currentFilters.searchTerm || null,
+    // ✅ ส่ง sortOrder ไปให้เซิร์ฟเวอร์เพื่อจัดเรียงที่ต้นทาง
+    sortOrder: resolvedSortOrder
+  };
+
+  // ป้องกัน currentPage ผิดปกติ
+  currentPage = Math.max(1, Number(currentPage) || 1);
+
+  console.log('📥 loadDocuments:', {
+    forceRefresh,
+    currentPage,
+    pageSize,
+    filters: cleanFilters
+  });
+
+  if (!suppressOverlay) showLoading('กำลังโหลดเอกสาร...');
+
+  google.script.run
+    .withSuccessHandler(function (result) {
+      hideLoading();
+
+      console.log('📡 Server Response:', result);
+
+      // ⭐ เพิ่มการตรวจสอบ result
+      if (!result) {
+        showError('ไม่ได้รับข้อมูลจาก Server');
+        return;
+      }
+
+      if (!result.success) {
+        // ⭐ แสดง error พร้อมรายละเอียด
+        let errorMsg = 'โหลดข้อมูลไม่สำเร็จ: ' + (result.error || 'Unknown error');
+
+        if (result.details) {
+          errorMsg += '\n\n' +
+            'Spreadsheet ID: ' + result.details.spreadsheetId + '\n' +
+            'Sheet Name: ' + result.details.sheetName;
+        }
+
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: errorMsg,
+          footer: '<a href="https://docs.google.com/spreadsheets/d/' +
+            SPREADSHEET_ID + '/edit" target="_blank">เปิด Spreadsheet</a>'
+        });
+
+        filteredDocuments = [];
+        renderDocuments([]);
+        return;
+      }
+
+      const data = result.data || [];
+      allDocuments = data;
+      filteredDocuments = [...data];
+      totalPages = result.totalPages || 1;
+
+      // ✅ ให้ยึดค่าหน้าจากเซิร์ฟเวอร์ ถ้าไม่มี ให้กลับเป็นหน้า 1
+      currentPage = result.page || 1;
+
+      // ⭐ ถ้าไม่มีข้อมูล แสดง message
+      if (data.length === 0 && result.message) {
+        Swal.fire({
+          icon: 'info',
+          title: 'ยังไม่มีข้อมูล',
+          text: result.message
+        });
+      }
+
+      // เก็บแคชตามลำดับใหม่และหน้าปัจจุบัน
+      saveToCache(data, currentPage, cleanFilters, totalPages, result.total);
+
+      // เรนเดอร์รายการและเพจจิ้ง
+      renderDocuments(allDocuments);
+      updatePagination({
+        page: result.page || 1,
+        pageSize: result.pageSize || pageSize,
+        total: result.total || 0,
+        totalPages: result.totalPages || 1,
+        hasPrev: result.hasPrev || false,
+        hasNext: result.hasNext || false
+      });
+
+      // โหลดตัวกรอง (เช่น นับจำนวน หมวดหมู่/ประเภท ฯลฯ)
+      loadFilters();
+
+      console.log('✅ โหลดเสร็จ:', allDocuments.length, 'รายการ (sort:', resolvedSortOrder, ')');
+    })
+    .withFailureHandler(function (error) {
+      hideLoading();
+
+      console.error('❌ Error:', error);
+
+      // ⭐ แสดง error แบบละเอียด
+      Swal.fire({
+        icon: 'error',
+        title: 'ไม่สามารถเชื่อมต่อได้',
+        html: `
+          <p>กรุณาตรวจสอบ:</p>
+          <ul style="text-align: left;">
+            <li>Spreadsheet ID และ Sheet Name ถูกต้อง</li>
+            <li>Script ได้รับอนุญาตสิทธิ์แล้ว</li>
+            <li>Deploy แล้วเป็น Web app</li>
+          </ul>
+          <p><small>${error}</small></p>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'ดูวิธีแก้ไข',
+        cancelButtonText: 'ปิด'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          window.open('https://developers.google.com/apps-script/guides/web', '_blank');
+        }
+      });
+
+      filteredDocuments = [];
+      renderDocuments([]);
+    })
+    // ✅ ส่งพารามิเตอร์ sortOrder ไปยัง Apps Script เพื่อให้ "ล่าสุดก่อน" แสดงที่หน้า 1
+    .getDocumentsPaginated(currentPage, pageSize, cleanFilters);
+}
+
+
+
+// ⭐ เพิ่มฟังก์ชันนี้เพื่อ debug
+function debugFilterState() {
+  console.table({
+    'Category Filter': document.getElementById('categoryFilter')?.value || '(empty)',
+    'Type Filter': document.getElementById('typeFilter')?.value || '(empty)',
+    'currentFilters.category': currentFilters.category || '(null)',
+    'currentFilters.type': currentFilters.type || '(null)',
+    'currentFilters.searchTerm': currentFilters.searchTerm || '(null)',
+    'allDocuments.length': allDocuments.length,
+    'filteredDocuments.length': filteredDocuments.length,
+    'currentPage': currentPage,
+    'totalPages': totalPages,
+    'Cache entries': pageCache.size
+  });
+}
+
+// เรียกใช้เมื่อต้องการ debug
+// debugFilterState();
+
+    
+ function renderDocuments(documents) {
+  filteredDocuments = documents || [];
+  const container = document.getElementById('documentsView');
+
+  console.log('🎨 Render:', {
+    count: filteredDocuments.length,
+    filters: {
+      category: currentFilters.category || '(ทั้งหมด)',
+      type: currentFilters.type || '(ทั้งหมด)'
+    }
+  });
+
+  // ⭐ Empty State
+  if (!filteredDocuments.length) {
+    const hasFilters = currentFilters.category || currentFilters.type || currentFilters.searchTerm;
+    
+    container.innerHTML = `
+      <div class="empty-state">
+        <i class="fas fa-folder-open"></i>
+        <h3>ไม่พบเอกสาร</h3>
+        <p>
+          ${hasFilters ? 
+            'ไม่พบเอกสารที่ตรงกับเงื่อนไขที่เลือก<br><small>ลองเปลี่ยนหมวดหมู่หรือประเภท</small>' : 
+            'ยังไม่มีเอกสารในระบบ'}
+        </p>
+        ${hasFilters ? `
+          <button class="btn" onclick="resetAllFilters()" style="margin-top:16px;">
+            <i class="fas fa-redo"></i> แสดงทั้งหมด
+          </button>
+        ` : ''}
+      </div>`;
+    return;
+  }
+
+  // เรนเดอร์ตามโหมด
+  if (currentView === 'grid') {
+    container.innerHTML = '<div class="documents-grid"></div>';
+    const grid = container.querySelector('.documents-grid');
+    filteredDocuments.forEach(doc => grid.appendChild(createCardElement(doc)));
+  } else {
+    container.innerHTML = '<div class="documents-list"></div>';
+    const list = container.querySelector('.documents-list');
+    filteredDocuments.forEach(doc => list.appendChild(createListElement(doc)));
+  }
+}
+
+// ✅ ฟังก์ชันช่วยเปิดไฟล์หรือโฟลเดอร์ (ใช้กับปุ่ม "ดู")
+function getOpenUrlFromItem(item) {
+  // 1) ถ้ามี file_url (จากชีต) ใช้อันนั้นก่อน
+  if (item.file_url) return item.file_url;
+
+  // 2) ถ้ามี file_objects (จาก JSON) ให้ใช้ตัวแรก
+  if (item.file_objects && item.file_objects.length > 0) {
+    const f = item.file_objects[0];
+    return f.fileUrl || f.previewUrl || f.url || null;
+  }
+
+  // 3) ไม่มีเลย
+  return null;
+}
+
+
+// ⭐ ฟังก์ชันรีเซ็ต filters ทั้งหมด
+function resetAllFilters() {
+  console.log('🔄 รีเซ็ต Filters ทั้งหมด');
+  
+  // รีเซ็ต select
+  const categoryFilter = document.getElementById('categoryFilter');
+  const typeFilter = document.getElementById('typeFilter');
+  const searchInput = document.getElementById('searchInput');
+  
+  if (categoryFilter) categoryFilter.value = '';
+  if (typeFilter) typeFilter.value = '';
+  if (searchInput) searchInput.value = '';
+  
+  // รีเซ็ต filters object
+  currentFilters = {
+    category: null,
+    type: null,
+    searchTerm: null
+  };
+  
+  // ลบ badge
+  removeBadge();
+  
+  // รีเซ็ตหน้า
+  currentPage = 1;
+  
+  // ล้าง cache
+  clearCache();
+  
+  // โหลดข้อมูลใหม่
+  loadDocuments(true);
+}
+
+    
+    // Render Grid View
+    function renderGridView(documents, container) {
+      container.innerHTML = '<div class="documents-grid"></div>';
+      const grid = container.querySelector('.documents-grid');
+      
+      documents.forEach(doc => {
+        const card = createCardElement(doc);
+        grid.appendChild(card);
+      });
+    }
+    
+    // Render List View
+    function renderListView(documents, container) {
+      container.innerHTML = '<div class="documents-list"></div>';
+      const list = container.querySelector('.documents-list');
+      
+      documents.forEach(doc => {
+        const listItem = createListElement(doc);
+        list.appendChild(listItem);
+      });
+    }
+    
+   /**
+ * แปลง tags เป็น string และตัดให้สั้น
+ */
+function formatTags(tags, maxLength = 30) {
+  if (!tags) return '';
+  const tagsStr = String(tags);
+  return tagsStr.length > maxLength 
+    ? tagsStr.substring(0, maxLength) + '...' 
+    : tagsStr;
+}
+
+    
+    // Create Card Element
+    // Create Card Element (จำกัดลิงก์ไฟล์ในการ์ด + ปุ่มดูทั้งหมด)
+function createCardElement(doc) {
+  const card = document.createElement('div');
+  card.className = 'document-card';
+  card.setAttribute('data-id', doc.id);
+  
+  const icon = getDocIcon(doc.document_type);
+  const badgeClass = getBadgeClass(doc.document_type);
+
+  // ⭐ จำกัดจำนวน File Links
+  let fileLinks = '';
+  let extraFilesBtn = '';
+  
+  try {
+    if (doc.file_objects_json) {
+      const files = JSON.parse(doc.file_objects_json);
+      if (Array.isArray(files) && files.length > 0) {
+        const first2 = files.slice(0, 2);
+        fileLinks = first2.map(f => `
+          <div class="meta-item">
+            <i class="fas fa-file"></i>
+            <a href="javascript:void(0)" 
+               onclick="openUrlSafely('${f.url}'); return false;" 
+               style="cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              ${escapeHtml(f.name.substring(0, 20))}${f.name.length > 20 ? '...' : ''}
+            </a>
+          </div>
+        `).join('');
+
+        if (files.length > 2) {
+          extraFilesBtn = `
+            <div class="meta-item">
+              <button class="btn" style="background:#9E826B;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;"
+                      onclick="viewDocument(${doc.id})">
+                <i class="fas fa-paperclip"></i> อีก ${files.length - 2} ไฟล์
+              </button>
+            </div>
+          `;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Parse error:', e);
+  }
+
+  // ⭐ จำกัดความยาว Description
+  let description = '';
+  if (doc.description) {
+    const shortDesc = doc.description.length > 100 
+      ? doc.description.substring(0, 100) + '...' 
+      : doc.description;
+    description = `
+      <div style="margin-top:12px;padding:12px;background:#f8f9fa;border-radius:8px;font-size:13px;color:#666;max-height:80px;overflow:hidden;">
+        ${escapeHtml(shortDesc)}
+      </div>
+    `;
+  }
+
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-icon">${icon}</div>
+      <div class="card-category">${escapeHtml(doc.category)}</div>
+    </div>
+    
+    <div class="card-body">
+      <div class="card-title">${highlightText(doc.title, currentFilters.searchTerm)}</div>
+      
+      <div class="card-meta">
+  <!-- วันที่อัปโหลด -->
+  <div class="meta-item">
+    <i class="fas fa-clock"></i>
+    <span><strong>อัปโหลด:</strong> ${escapeHtml(doc.timestamp || '-')}</span>
+  </div>
+  
+  <!-- วันที่เอกสาร -->
+  <div class="meta-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span><strong>วันที่เอกสาร:</strong> ${escapeHtml(doc.document_date || '-')}</span>
+  </div>
+  
+  <!-- ประเภทเอกสาร -->
+  <div class="meta-item">
+    <i class="fas fa-file-alt"></i>
+    <span><strong>ประเภท:</strong> <span class="badge ${badgeClass}">${doc.document_type}</span></span>
+  </div>
+  
+  <!-- ผู้ส่ง -->
+  <div class="meta-item">
+    <i class="fas fa-user"></i>
+    <span><strong>ผู้ส่ง:</strong> ${escapeHtml(doc.submitter_name)}</span>
+  </div>
+  
+  ${fileLinks}
+  ${extraFilesBtn}
+  ${doc.tags ? `<div class="meta-item"><i class="fas fa-tags"></i><span>${escapeHtml(formatTags(doc.tags, 30))}</span></div>` : ''}
+</div>
+      
+      ${description}
+    </div>
+    
+    <div class="card-footer">
+  <button class="btn btn-view" onclick="viewDocument(${doc.id})">
+    <i class="fas fa-eye"></i> ดู
+  </button>
+  <button class="btn btn-edit" onclick="editDocument(${doc.id})">
+    <i class="fas fa-edit"></i> แก้ไข
+  </button>
+  ${isAdmin ? `
+    <button class="btn btn-delete" onclick="deleteDocument(${doc.id})">
+      <i class="fas fa-trash"></i> ลบ
+    </button>
+  ` : ''}
+</div>
+  `;
+  
+  return card;
+}
+
+// Create List Element (จำกัดลิงก์ไฟล์ในรายการ + ปุ่มดูทั้งหมด)
+function createListElement(doc) {
+  const listItem = document.createElement('div');
+  listItem.className = 'document-list-item';
+  listItem.setAttribute('data-id', doc.id);
+  const icon = getDocIcon(doc.document_type);
+
+  let fileLinks = '';
+  let extraFilesBtn = '';
+  try {
+    if (doc.file_objects_json) {
+      const files = JSON.parse(doc.file_objects_json);
+      if (Array.isArray(files) && files.length > 0) {
+        const first3 = files.slice(0, 3);
+        fileLinks = first3.map(f => `
+          <a href="javascript:void(0)" onclick="openUrlSafely('${f.url}'); return false;" style="cursor:pointer;">
+            <i class="fas fa-paperclip"></i> ${escapeHtml(f.name)}
+          </a>`).join(', ');
+
+        if (files.length > 3) {
+          extraFilesBtn = `
+            <button class="btn" style="background:#836953;color:#fff;padding:6px 10px;border-radius:6px;margin-left:8px;"
+                    onclick="viewDocument(${doc.id})">
+              ดูทั้งหมด (${files.length})
+            </button>`;
+        }
+      }
+    }
+  } catch (e) {
+    if (doc.file_url) {
+      fileLinks = `<a href="${doc.file_url}" target="_blank" style="color:#007bff;">ดูไฟล์</a>`;
+    }
+  }
+
+  listItem.innerHTML = `
+    <div class="list-icon">${icon}</div>
+    <div class="list-content">
+      <div class="list-title">${highlightText(doc.title, currentFilters.searchTerm)}</div>
+      <div class="list-meta">
+        <span class="list-category">${escapeHtml(doc.category)}</span>
+        ${doc.tags ? `<span class="list-tag">${escapeHtml(doc.tags)}</span>` : ''}
+      </div>
+      
+      <div class="list-details-row">
+  <!-- วันที่อัปโหลด -->
+  <div class="list-detail-item">
+    <i class="fas fa-clock"></i>
+    <span class="list-detail-label">อัปโหลด:</span>
+    <span class="list-detail-value">${escapeHtml(doc.timestamp || '-')}</span>
+  </div>
+  
+  <!-- วันที่เอกสาร -->
+  <div class="list-detail-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span class="list-detail-label">วันที่เอกสาร:</span>
+    <span class="list-detail-value">${escapeHtml(doc.document_date || '-')}</span>
+  </div>
+  
+  <!-- ประเภทเอกสาร -->
+  <div class="list-detail-item">
+    <i class="fas fa-file-alt"></i>
+    <span class="list-detail-label">ประเภท:</span>
+    <span class="list-detail-value">${doc.document_type}</span>
+  </div>
+  
+  <!-- ผู้ส่ง -->
+  <div class="list-detail-item">
+    <i class="fas fa-user"></i>
+    <span class="list-detail-label">ผู้ส่ง:</span>
+    <span class="list-detail-value">${escapeHtml(doc.submitter_name)}</span>
+  </div>
+</div>
+      ${fileLinks ? `<div style="margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">${fileLinks}${extraFilesBtn}</div>` : ''}
+    </div>
+    <div class="list-actions">
+      <button class="btn btn-view" onclick="viewDocument(${doc.id})">
+        <i class="fas fa-eye"></i> ดู
+      </button>
+      <button class="btn btn-edit" onclick="editDocument(${doc.id})">
+        <i class="fas fa-edit"></i> แก้ไข
+      </button>
+      <button class="btn btn-delete" onclick="deleteDocument(${doc.id})">
+        <i class="fas fa-trash"></i> ลบ
+      </button>
+    </div>
+  `;
+  return listItem;
+}
+
+    
+/**
+ * อัปเดต Pagination Controls และแสดงจำนวนไฟล์
+ */
+function updatePagination(result) {
+  const paginationContainer = document.getElementById('paginationContainer');
+  
+  console.log('📊 Update Pagination:', result);
+  
+  // แสดง/ซ่อน Pagination
+  if (result.totalPages > 1) {
+    if (paginationContainer) {
+      paginationContainer.style.display = 'flex';
+      // ⭐ ใช้ renderPagination แบบใหม่ที่มีเลขหน้า
+      renderPagination('#paginationContainer', result.totalPages, result.page, 'gotoPage');
+    }
+  } else {
+    // มีหน้าเดียว - ซ่อน pagination
+    if (paginationContainer) {
+      paginationContainer.style.display = 'none';
+    }
+  }
+}
+    /**
+ * อัปเดตข้อมูลจำนวนไฟล์ที่แสดง
+ */
+/**
+ * อัปเดตข้อมูลจำนวนไฟล์ที่แสดง
+ */
+/**
+ * อัปเดตข้อมูลจำนวนไฟล์ที่แสดง
+ */
+function updatePaginationInfo(result) {
+  const infoContainer = document.getElementById('totalDocsInfo');
+  
+  if (!infoContainer) return;
+  
+  // ⭐ ใช้ชื่อตัวแปรที่ไม่ซ้ำ
+  const totalDocs = result.total || 0;
+  const currentPage = result.page || 1;
+  const itemsPerPage = result.pageSize || 8;  // ⭐ เปลี่ยนจาก pageSize เป็น itemsPerPage
+  
+  // คำนวณช่วงรายการที่แสดง
+  const startIndex = ((currentPage - 1) * itemsPerPage) + 1;
+  const endIndex = Math.min(currentPage * itemsPerPage, totalDocs);
+  
+  // สร้าง HTML
+  if (totalDocs > 0) {
+    const hasFilters = currentFilters.category || currentFilters.type || currentFilters.searchTerm;
+    
+    infoContainer.innerHTML = `
+      <i class="fas fa-file-alt"></i> 
+      แสดงรายการที่ <strong>${startIndex}-${endIndex}</strong> 
+      จากทั้งหมด <strong>${totalDocs}</strong> รายการ
+      ${hasFilters ? 
+        '<span style="color:#999;font-size:13px;margin-left:8px;">(กรองแล้ว)</span>' : 
+        ''}
+    `;
+  } else {
+    infoContainer.innerHTML = `
+      <i class="fas fa-file-alt"></i> 
+      ไม่มีรายการ
+    `;
+  }
+  
+  console.log('📄 Showing:', {
+    range: `${startIndex}-${endIndex}`,
+    total: totalDocs,
+    page: currentPage,
+    itemsPerPage: itemsPerPage
+  });
+}
+
+    function pushListState(page) {
+  const st = { page, filters: currentFilters };
+  const url = new URL(location.href);
+  url.searchParams.set('page', String(page));
+  history.pushState(st, '', url);
+}
+
+// ===== อัปเดตฟังก์ชัน nextPage =====
+function nextPage() {
+  if (currentPage < totalPages) {
+    currentPage++;
+    pushListState(currentPage);
+    loadDocuments(false, { suppressOverlay: true }); // แสดงจากแคชก่อน ลื่นขึ้น
+  }
+}
+function previousPage() {
+  if (currentPage > 1) {
+    currentPage--;
+    pushListState(currentPage);
+    loadDocuments(false, { suppressOverlay: true });
+  }
+}
+
+const prevPage = previousPage;
+/**
+ * 📊 สร้างเลขหน้า pagination แบบมี ellipsis (...)
+ */
+function generatePageNumbers(currentPage, totalPages, maxVisible = 7) {
+  const pages = [];
+  
+  if (totalPages <= maxVisible) {
+    // ถ้าหน้าน้อย แสดงทั้งหมด
+    for (let i = 1; i <= totalPages; i++) {
+      pages.push(i);
+    }
+  } else {
+    // แสดงหน้าแรก
+    pages.push(1);
+    
+    const leftSiblings = Math.floor((maxVisible - 3) / 2);
+    const rightSiblings = Math.ceil((maxVisible - 3) / 2);
+    
+    let startPage = Math.max(2, currentPage - leftSiblings);
+    let endPage = Math.min(totalPages - 1, currentPage + rightSiblings);
+    
+    // ปรับให้ครบจำนวนที่ต้องการแสดง
+    if (currentPage - leftSiblings <= 2) {
+      endPage = Math.min(totalPages - 1, maxVisible - 2);
+    }
+    if (currentPage + rightSiblings >= totalPages - 1) {
+      startPage = Math.max(2, totalPages - maxVisible + 2);
+    }
+    
+    // เพิ่ม ... ด้านซ้าย
+    if (startPage > 2) {
+      pages.push('...');
+    }
+    
+    // เพิ่มหน้าตรงกลาง
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    
+    // เพิ่ม ... ด้านขวา
+    if (endPage < totalPages - 1) {
+      pages.push('...');
+    }
+    
+    // แสดงหน้าสุดท้าย
+    pages.push(totalPages);
+  }
+  
+  return pages;
+}
+
+/**
+ * 📊 ไปยังหน้าที่ระบุ
+ */
+function gotoPage(page) {
+  if (page >= 1 && page <= totalPages && page !== currentPage) {
+    currentPage = page;
+    pushListState(currentPage);
+    loadDocuments(false, { suppressOverlay: true });
+  }
+}
+
+/**
+ * 📊 แสดงปุ่ม pagination ภายใต้ตาราง (พร้อมเลขหน้า)
+ */
+function renderPagination(containerSelector, totalPages, currentPage, onPageChange) {
+  const container = document.querySelector(containerSelector);
+  if (!container) return;
+  
+  const pageNumbers = generatePageNumbers(currentPage, totalPages);
+  
+  let html = '<div class="pagination-wrapper">';
+  
+  // ปุ่มย้อนกลับ
+  html += '<button class="m-pagination-btn" ';
+  if (currentPage <= 1) {
+    html += 'disabled';
+  } else {
+    html += 'onclick="' + onPageChange + '(' + (currentPage - 1) + ')"';
+  }
+  html += '><i class="fas fa-chevron-left"></i> ย้อนกลับ</button>';
+  
+  // เลขหน้า
+  html += '<div class="pagination-numbers">';
+  pageNumbers.forEach(function(page) {
+    if (page === '...') {
+      html += '<span class="pagination-ellipsis">...</span>';
+    } else {
+      html += '<button class="pagination-number ';
+      if (page === currentPage) html += 'active';
+      html += '" onclick="' + onPageChange + '(' + page + ')">';
+      html += page;
+      html += '</button>';
+    }
+  });
+  html += '</div>';
+  
+  // ปุ่มถัดไป
+  html += '<button class="m-pagination-btn" ';
+  if (currentPage >= totalPages) {
+    html += 'disabled';
+  } else {
+    html += 'onclick="' + onPageChange + '(' + (currentPage + 1) + ')"';
+  }
+  html += '>ถัดไป <i class="fas fa-chevron-right"></i></button>';
+  
+  html += '</div>';
+  
+  container.innerHTML = html;
+}
+
+
+
+function nextFilePage() {
+  const totalPages = Math.ceil((currentDocFiles || []).length / FILES_PER_PAGE);
+  if (currentFilePage < totalPages) {
+    currentFilePage++;
+    renderFilePage();
+  }
+}
+// ⭐ ใส่ฟังก์ชันนี้ตรงนี้
+function previousFilePage() {
+  if (currentFilePage > 1) {
+    currentFilePage--;
+    renderFilePage();
+  }
+}
+
+function renderFilePage() {
+  if (!currentDocFiles || currentDocFiles.length === 0) return;
+
+  const totalPages = Math.ceil(currentDocFiles.length / FILES_PER_PAGE);
+  const startIdx = (currentFilePage - 1) * FILES_PER_PAGE;
+  const endIdx = startIdx + FILES_PER_PAGE;
+  const pageFiles = currentDocFiles.slice(startIdx, endIdx);
+
+  const modal = document.getElementById('viewModal');
+  if (!modal) return;
+
+  const fileContainer = modal.querySelector('#fileLinksContainer');
+  
+  if (fileContainer) {
+    fileContainer.innerHTML = pageFiles.map((fileObj, index) => `
+      <div style="
+        padding: 12px;
+        background: white;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      ">
+        <div style="
+          width: 40px;
+          height: 40px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-size: 16px;
+          flex-shrink: 0;
+        ">
+          <i class="fas fa-file"></i>
+        </div>
+        
+        <div style="flex: 1; min-width: 0;">
+          <div style="
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 2px;
+          ">${escapeHtml(fileObj.name || 'ไฟล์ ' + (startIdx + index + 1))}</div>
+          
+          <div style="font-size: 11px; color: #999;">
+            ${startIdx + index + 1}/${currentDocFiles.length}
+          </div>
+        </div>
+        
+        <a href="${fileObj.url || fileObj.fileUrl || '#'}" 
+           target="_blank"
+           rel="noopener noreferrer"
+           onclick="event.stopPropagation();"
+           style="
+             padding: 8px 14px;
+             background: linear-gradient(135deg, #667eea, #764ba2);
+             color: white;
+             text-decoration: none;
+             border-radius: 8px;
+             font-weight: 600;
+             font-size: 13px;
+             display: flex;
+             align-items: center;
+             gap: 6px;
+             flex-shrink: 0;
+           ">
+          <i class="fas fa-external-link-alt" style="font-size: 11px;"></i>
+          เปิด
+        </a>
+      </div>
+    `).join('');
+    
+    fileContainer.scrollTop = 0;
+  }
+
+  // อัปเดต Pagination
+  const pageInfo = modal.querySelector('#filePageInfo');
+  const prevBtn = modal.querySelector('#filePrevBtn');
+  const nextBtn = modal.querySelector('#fileNextBtn');
+
+  if (pageInfo) pageInfo.textContent = `หน้า ${currentFilePage} จาก ${Math.max(1, totalPages)}`;
+  if (prevBtn) prevBtn.disabled = currentFilePage === 1;
+  if (nextBtn) nextBtn.disabled = currentFilePage >= totalPages;
+}
+
+// ===== อัปเดตฟังก์ชัน handleSearch =====
+function handleSearch() {
+  const searchInput = document.getElementById('searchInput');
+  if (!searchInput) return;
+  
+  const searchTerm = searchInput.value.trim();
+  currentFilters.searchTerm = searchTerm;
+  
+  // ⭐ ถ้าไม่มีคำค้นหาและไม่มี filters = แสดงทั้งหมด
+  if (!searchTerm && !currentFilters.category && !currentFilters.type) {
+    // ล้าง badge
+    const badge = document.querySelector('.search-result-badge');
+    if (badge) badge.remove();
+    
+    // แสดงทั้งหมด
+    filteredDocuments = [...allDocuments];
+    renderDocuments(filteredDocuments);
+    return;
+  }
+  
+  // มีการค้นหา
+  if (allDocuments && allDocuments.length > 0) {
+    const useFuzzy = searchTerm.length >= 3;
+    searchWithWorker(searchTerm, currentFilters, useFuzzy);
+  } else {
+    currentPage = 1;
+    clearCache();
+    loadDocuments();
+  }
+}
+    // ⭐ เพิ่มฟังก์ชันนี้
+function clearSearch() {
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.focus();
+  }
+  
+  if (clearBtn) {
+    clearBtn.style.display = 'none';
+  }
+  
+  // ⭐ ล้าง badge ทันที
+  const badge = document.querySelector('.search-result-badge');
+  if (badge) {
+    badge.remove();
+  }
+  
+  // ล้าง search cache
+  if (typeof searchCache !== 'undefined') {
+    searchCache.clear();
+  }
+  
+  // ⭐ ล้าง search term
+  currentFilters.searchTerm = '';
+  
+  // ⭐ ตั้งค่า flag ว่ากำลังล้างการค้นหา
+  window.__clearingSearch = true;
+  
+  // แสดงข้อมูลทั้งหมด
+  filteredDocuments = [...allDocuments];
+  renderDocuments(filteredDocuments);
+  
+  // ⭐ ยกเลิก flag หลัง render เสร็จ
+  setTimeout(() => {
+    window.__clearingSearch = false;
+  }, 100);
+  
+  console.log('🔄 ล้างการค้นหาแล้ว');
+}
+// ⭐⭐⭐ เพิ่มฟังก์ชันนี้ ⭐⭐⭐
+
+/**
+ * แสดง/ซ่อนปุ่ม Clear Search
+ */
+function toggleClearButton() {
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  
+  if (!searchInput || !clearBtn) return;
+  
+  const hasValue = searchInput.value.trim().length > 0;
+  
+  // แสดง/ซ่อนปุ่ม
+  clearBtn.style.display = hasValue ? 'block' : 'none';
+  
+  // เพิ่ม hover effect
+  if (hasValue) {
+    clearBtn.onmouseover = function() {
+      this.style.color = '#dc3545';
+      this.style.transform = 'translateY(-50%) scale(1.1)';
+    };
+    clearBtn.onmouseout = function() {
+      this.style.color = '#999';
+      this.style.transform = 'translateY(-50%) scale(1)';
+    };
+  }
+}
+
+/**
+ * ลบ Search Result Badge พร้อม Animation
+ */
+function removeBadge() {
+  const badge = document.querySelector('.search-result-badge');
+  if (badge) {
+    badge.classList.add('removing');
+    setTimeout(() => {
+      badge.remove();
+    }, 200);
+  }
+}
+
+
+// แสดง/ซ่อนปุ่ม Clear
+document.addEventListener('DOMContentLoaded', function() {
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  
+  if (searchInput && clearBtn) {
+    searchInput.addEventListener('input', function() {
+      clearBtn.style.display = this.value ? 'block' : 'none';
+    });
+  }
+});
+
+function handleFilterChange() {
+  const categorySelect = document.getElementById('categoryFilter');
+  const typeSelect = document.getElementById('typeFilter');
+  
+  const category = categorySelect.value.trim();
+  const type = typeSelect.value.trim();
+  
+  // ⭐ แปลง empty string เป็น null
+  currentFilters.category = category || null;
+  currentFilters.type = type || null;
+  currentFilters.searchTerm = null;
+  
+  console.log('🔄 Filter Changed:', {
+    category: currentFilters.category || '(ทั้งหมด)',
+    type: currentFilters.type || '(ทั้งหมด)',
+    selectValues: { category, type }
+  });
+  
+  // ⭐ รีเซ็ตการค้นหา
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) searchInput.value = '';
+  removeBadge();
+  
+  // รีเซ็ตหน้า
+  currentPage = 1;
+  filteredDocuments = [];
+  
+  // ⭐ ล้าง cache
+  clearCache();
+  
+  // ⭐ โหลดข้อมูลใหม่ (force refresh)
+  loadDocuments(true, { suppressOverlay: false });
+} 
+
+// ⭐ เพิ่มฟังก์ชันนี้เพื่อให้ cache key สม่ำเสมอ
+function normalizeFilters(filters) {
+  return {
+    category: filters.category || null,
+    type: filters.type || null,
+    searchTerm: filters.searchTerm || null
+  };
+}
+
+    // Load Filters - ⭐ แก้ไขให้ใช้ตัวเลือกแบบคงที่
+function loadFilters() {
+  const categoryFilter = document.getElementById('categoryFilter');
+  const typeFilter = document.getElementById('typeFilter');
+
+  // ⭐ บันทึกค่าเดิมก่อน
+  const currentCategory = categoryFilter.value;
+  const currentType = typeFilter.value;
+
+  // เคลียร์ทุกอย่างยกเว้น option แรก
+  categoryFilter.length = 1;
+  typeFilter.length = 1;
+
+  const categories = [
+    'งานฝ่ายบริหาร','งานวิชาการ','งานบริหารบุคคล',
+    'งานบริหารการเงินและสินทรัพย์','งานบริหารทั่วไป',
+    'งานกิจกรรมโรงเรียน','งานส่งเสริมสนับสนุนอื่นๆ'
+  ];
+  const documentTypes = [
+    'หนังสือราชการ','ประกาศ','คำสั่ง','รูปภาพ',
+    'ไฟล์เอกสาร','แผนการสอน','รายงาน','เรื่องทั่วไป'
+  ];
+
+  const categoryCounts = {};
+  const typeCounts = {};
+  (allDocuments || []).forEach(doc => {
+    if (doc.category) categoryCounts[doc.category] = (categoryCounts[doc.category] || 0) + 1;
+    if (doc.document_type) typeCounts[doc.document_type] = (typeCounts[doc.document_type] || 0) + 1;
+  });
+
+  categories.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = `${cat} (${categoryCounts[cat] || 0})`;
+    categoryFilter.appendChild(opt);
+  });
+
+  documentTypes.forEach(type => {
+    const opt = document.createElement('option');
+    opt.value = type;
+    opt.textContent = `${type} (${typeCounts[type] || 0})`;
+    typeFilter.appendChild(opt);
+  });
+
+  // ⭐ คืนค่าเดิมกลับไป (ไม่ให้กระโดด)
+  if (currentCategory) categoryFilter.value = currentCategory;
+  if (currentType) typeFilter.value = currentType;
+  
+  console.log('🔄 โหลด Filters เสร็จ - คงค่าเดิม:', { 
+    category: categoryFilter.value || '(ทั้งหมด)', 
+    type: typeFilter.value || '(ทั้งหมด)' 
+  });
+}
+
+// ===== 🔍 Search Worker System =====
+
+let searchWorker = null;
+let searchCache = new Map(); // เก็บผลค้นหาที่เคยค้นแล้ว
+
+/**
+ * สร้าง Web Worker สำหรับค้นหา
+ */
+function initSearchWorker() {
+  if (typeof Worker === 'undefined') {
+    console.warn('⚠️ Browser ไม่รองรับ Web Worker');
+    return false;
+  }
+  
+  try {
+    const workerCode = `
+      // Worker Code
+      self.onmessage = function(e) {
+        const { documents, searchTerm, filters, fuzzySearch } = e.data;
+        
+        // ฟังก์ชันคำนวณ Fuzzy Match Score
+        function fuzzyScore(text, search) {
+          if (!text || !search) return 0;
+          
+          text = String(text).toLowerCase();
+          search = String(search).toLowerCase();
+          
+          if (text.includes(search)) return 100;
+          
+          let score = 0;
+          let searchIndex = 0;
+          
+          for (let i = 0; i < text.length; i++) {
+            if (text[i] === search[searchIndex]) {
+              score += 1;
+              searchIndex++;
+              if (searchIndex === search.length) break;
+            }
+          }
+          
+          return Math.round((score / search.length) * 100);
+        }
+        
+        // ⭐ ฟังก์ชันแปลงค่าเป็น String ที่ปลอดภัย
+        function safeString(value) {
+          if (value === null || value === undefined) return '';
+          if (typeof value === 'string') return value;
+          if (typeof value === 'number') return String(value);
+          if (typeof value === 'object') {
+            try {
+              return JSON.stringify(value);
+            } catch (e) {
+              return '';
+            }
+          }
+          return String(value);
+        }
+        
+        // ฟังก์ชันค้นหา
+        const results = documents
+          .map(doc => {
+            // ⭐ สร้าง searchable text โดยใช้ safeString
+            const searchableText = [
+              safeString(doc.title),
+              safeString(doc.submitter_name),
+              safeString(doc.description),
+              safeString(doc.tags),
+              safeString(doc.category),
+              safeString(doc.document_type)
+            ].join(' ').toLowerCase();
+            
+            // ตรวจสอบ filters
+            const matchesCategory = !filters.category || doc.category === filters.category;
+            const matchesType = !filters.type || doc.document_type === filters.type;
+            
+            if (!matchesCategory || !matchesType) {
+              return null;
+            }
+            
+            // ตรวจสอบ search term
+            if (!searchTerm) {
+              return { doc, score: 100, matches: [] };
+            }
+            
+            const search = String(searchTerm).toLowerCase();
+            
+            // คำนวณคะแนน
+            let score = 0;
+            const matches = [];
+            
+            // ⭐ ค้นหาในแต่ละฟิลด์ด้วย safeString
+            const fields = [
+              { name: 'title', value: safeString(doc.title), weight: 3 },
+              { name: 'tags', value: safeString(doc.tags), weight: 2 },
+              { name: 'category', value: safeString(doc.category), weight: 1.5 },
+              { name: 'submitter_name', value: safeString(doc.submitter_name), weight: 1.5 },
+              { name: 'description', value: safeString(doc.description), weight: 1 },
+              { name: 'document_type', value: safeString(doc.document_type), weight: 1 }
+            ];
+            
+            for (const field of fields) {
+              // ⭐ ข้าม field ที่ว่าง
+              if (!field.value || field.value.trim() === '') continue;
+              
+              const fieldText = field.value.toLowerCase(); // แต่ field.value ผ่าน safeString() แล้ว
+              
+              if (fuzzySearch) {
+                const fieldScore = fuzzyScore(fieldText, search);
+                if (fieldScore > 30) {
+                  score += fieldScore * field.weight;
+                  matches.push({ field: field.name, score: fieldScore });
+                }
+              } else {
+                if (fieldText.includes(search)) {
+                  score += 100 * field.weight;
+                  matches.push({ field: field.name, score: 100 });
+                }
+              }
+            }
+            
+            if (score > 0 || !searchTerm) {
+              return { doc, score, matches };
+            }
+            
+            return null;
+          })
+          .filter(item => item !== null)
+          .sort((a, b) => b.score - a.score);
+        
+        self.postMessage({ 
+          results: results.map(item => item.doc),
+          stats: {
+            total: results.length,
+            scores: results.map(item => ({ 
+              id: item.doc.id, 
+              score: item.score, 
+              matches: item.matches 
+            }))
+          }
+        });
+      };
+    `;
+    
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    searchWorker = new Worker(URL.createObjectURL(blob));
+    
+    searchWorker.onmessage = function(e) {
+      const { results, stats } = e.data;
+      handleSearchResults(results, stats);
+    };
+    
+    searchWorker.onerror = function(error) {
+      console.error('❌ Search Worker Error:', error);
+      console.warn('⚠️ กลับไปใช้การค้นหาแบบปกติ');
+      handleSearchRegular();
+    };
+    
+    console.log('✅ Search Worker initialized');
+    return true;
+    
+  } catch (error) {
+    console.error('❌ Failed to create Search Worker:', error);
+    return false;
+  }
+}
+/**
+ * ค้นหาด้วย Web Worker
+ */
+function searchWithWorker(searchTerm, filters, fuzzySearch = false) {
+  if (!searchWorker) {
+    console.warn('⚠️ Worker not available, using regular search');
+    handleSearchRegular();
+    return;
+  }
+  
+  // เช็ค cache
+  const cacheKey = JSON.stringify({ searchTerm, filters, fuzzySearch });
+  if (searchCache.has(cacheKey)) {
+    console.log('✅ ใช้ผลค้นหาจาก Cache');
+    const cached = searchCache.get(cacheKey);
+    handleSearchResults(cached.results, cached.stats);
+    return;
+  }
+  
+  // แสดง Loading
+  showSearchLoading();
+  
+  // ส่งงานไปให้ Worker
+  searchWorker.postMessage({
+    documents: allDocuments,
+    searchTerm: searchTerm,
+    filters: filters,
+    fuzzySearch: fuzzySearch
+  });
+  
+  // บันทึกลง cache
+  searchWorker.onmessage = function(e) {
+    const { results, stats } = e.data;
+    searchCache.set(cacheKey, { results, stats });
+    
+    // ล้าง cache เก่าถ้ามีมากกว่า 50 รายการ
+    if (searchCache.size > 50) {
+      const firstKey = searchCache.keys().next().value;
+      searchCache.delete(firstKey);
+    }
+    
+    handleSearchResults(results, stats);
+  };
+}
+
+/**
+ * แสดง Loading ขณะค้นหา
+ */
+function showSearchLoading() {
+  const container = document.getElementById('documentsView');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div style="
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      gap: 16px;
+    ">
+      <div style="
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e0e0e0;
+        border-top: 4px solid #9E826B;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      "></div>
+      <div style="
+        color: #666;
+        font-size: 16px;
+        font-weight: 600;
+      ">กำลังค้นหา...</div>
+    </div>
+  `;
+}
+
+/**
+ * จัดการผลลัพธ์จาก Worker
+ */
+function handleSearchResults(results, stats) {
+  filteredDocuments = results;
+  
+  if (stats && stats.total > 0) {
+    console.log(`🔍 พบ ${stats.total} รายการ`);
+    
+    if (stats.scores && stats.scores.length > 0) {
+      const top3 = stats.scores.slice(0, 3);
+      console.table(top3.map(s => ({
+        ID: s.id,
+        Score: s.score.toFixed(1),
+        Matches: s.matches.map(m => m.field).join(', ')
+      })));
+    }
+  }
+  
+  renderDocuments(filteredDocuments);
+  
+  // ⭐ แสดง badge เฉพาะเมื่อไม่ได้กำลังล้างการค้นหา
+  if (!window.__clearingSearch) {
+    showSearchResultCount(results.length);
+  }
+}
+
+/**
+ * Fallback: ค้นหาแบบปกติ (ไม่ใช้ Worker)
+ */
+function handleSearchRegular() {
+  const searchInput = document.getElementById('searchInput');
+  const searchTerm = searchInput ? searchInput.value.trim() : '';
+  
+  // ⭐ ฟังก์ชัน helper
+  function safeString(value) {
+    if (value === null || value === undefined) return '';
+    return String(value);
+  }
+  
+  if (!searchTerm && !currentFilters.category && !currentFilters.type) {
+    filteredDocuments = allDocuments;
+    renderDocuments(filteredDocuments);
+    return;
+  }
+  
+  filteredDocuments = allDocuments.filter(doc => {
+    // ⭐ ใช้ safeString
+    const searchableText = [
+      safeString(doc.title),
+      safeString(doc.submitter_name),
+      safeString(doc.description),
+      safeString(doc.tags),
+      safeString(doc.category),
+      safeString(doc.document_type)
+    ].join(' ').toLowerCase();
+    
+    const matchesSearch = !searchTerm || 
+      searchableText.includes(searchTerm.toLowerCase());
+    
+    const matchesCategory = !currentFilters.category || 
+      doc.category === currentFilters.category;
+    
+    const matchesType = !currentFilters.type || 
+      doc.document_type === currentFilters.type;
+    
+    return matchesSearch && matchesCategory && matchesType;
+  });
+  
+  renderDocuments(filteredDocuments);
+  showSearchResultCount(filteredDocuments.length);
+}
+
+/**
+ * แสดงจำนวนผลลัพธ์
+ */
+function showSearchResultCount(count) {
+  const searchInput = document.getElementById('searchInput');
+  if (!searchInput) return;
+  
+  // ลบ badge เก่า
+  const oldBadge = document.querySelector('.search-result-badge');
+  if (oldBadge) oldBadge.remove();
+  
+  // ⭐ เพิ่มเงื่อนไข: แสดง badge เฉพาะตอนมีการค้นหา
+  const searchTerm = searchInput.value.trim();
+  const hasFilters = currentFilters.category || currentFilters.type;
+  
+  // แสดง badge เฉพาะเมื่อ:
+  // 1. มีการพิมพ์ค้นหา หรือ
+  // 2. มีการกรอง และผลลัพธ์น้อยกว่าทั้งหมด
+  if ((searchTerm || hasFilters) && count < allDocuments.length && count > 0) {
+    const badge = document.createElement('div');
+    badge.className = 'search-result-badge';
+    badge.innerHTML = `
+      <span style="
+        background: #4CAF50;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-left: 8px;
+        display: inline-block;
+        animation: slideIn 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      ">
+        พบ ${count} รายการ
+      </span>
+    `;
+    
+    searchInput.parentElement.appendChild(badge);
+  }
+}
+
+
+    
+    // Load Submitters
+    function loadSubmitters() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            const addSelect = document.getElementById('add_submitter_name');
+            const editSelect = document.getElementById('edit_submitter_name');
+            
+            result.data.forEach(submitter => {
+              const option1 = document.createElement('option');
+              option1.value = submitter.displayName;
+              option1.textContent = `${submitter.displayName} - ${submitter.position}`;
+              addSelect.appendChild(option1);
+              
+              const option2 = document.createElement('option');
+              option2.value = submitter.displayName;
+              option2.textContent = `${submitter.displayName} - ${submitter.position}`;
+              editSelect.appendChild(option2);
+            });
+          }
+        })
+        .getSubmitters();
+    }
+    
+ // View Document (Pagination in All Views + Debug)
+// ✅ View Document (ปรับปรุงการจัดการ Error)
+function viewDocument(docId) {
+  if (!docId) {
+    showError('ไม่พบ ID ของเอกสาร');
+    return;
+  }
+  
+  // เปิด Modal ทันที พร้อม Skeleton Loading
+  openModal('viewModal');
+  showModalSkeleton('viewModalBody');
+  
+  console.log('🔍 กำลังโหลดเอกสาร ID:', docId);
+  
+  // ดึงข้อมูลจาก Cache ก่อน
+  const cachedDoc = findDocumentInCache(docId);
+  
+  if (cachedDoc) {
+    console.log('✅ ใช้ข้อมูลจาก Cache');
+    displayDocumentInModal(cachedDoc);
+  }
+  
+  // โหลดข้อมูลล่าสุดจาก Server
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('📡 ได้รับข้อมูลจาก Server:', result);
+      
+      if (result && result.success && result.data) {
+        displayDocumentInModal(result.data);
+      } else {
+        console.error('❌ ข้อมูลไม่ถูกต้อง:', result);
+        
+        // ถ้ามี Cache ให้ใช้ต่อ
+        if (cachedDoc) {
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'warning',
+            title: 'ใช้ข้อมูลแคชแทน',
+            text: 'ไม่สามารถโหลดข้อมูลล่าสุดได้',
+            showConfirmButton: false,
+            timer: 3000
+          });
+        } else {
+          // ไม่มี Cache เลย - ปิด Modal
+          closeModal('viewModal');
+          showError('ไม่สามารถโหลดข้อมูลเอกสารได้: ' + (result.error || 'ไม่พบข้อมูล'));
+        }
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('❌ เกิดข้อผิดพลาด:', error);
+      
+      // ถ้ามี Cache ให้แสดงต่อ
+      if (cachedDoc) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'warning',
+          title: 'ใช้ข้อมูลแคชแทน',
+          text: 'ไม่สามารถติดต่อ Server ได้',
+          showConfirmButton: false,
+          timer: 3000
+        });
+      } else {
+        closeModal('viewModal');
+        showError('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+      }
+    })
+    .getDocumentById(docId);
+}
+
+// ⭐ ฟังก์ชันหาเอกสารจาก Cache
+function findDocumentInCache(docId) {
+  if (!allDocuments || allDocuments.length === 0) {
+    return null;
+  }
+  return allDocuments.find(doc => doc.id == docId);
+}
+
+// ⭐ ฟังก์ชันแสดง Skeleton Loading
+function showModalSkeleton(modalBodyId) {
+  const modalBody = document.getElementById(modalBodyId);
+  if (!modalBody) return;
+  
+  modalBody.innerHTML = `
+    <div class="skeleton-loading" style="animation: pulse 1.5s infinite;">
+      <!-- Icon Skeleton -->
+      <div style="text-align:center; margin-bottom:20px;">
+        <div style="
+          width:80px; 
+          height:80px; 
+          background:#e0e0e0; 
+          border-radius:50%; 
+          margin:0 auto;
+        "></div>
+      </div>
+      
+      <!-- Title Skeleton -->
+      <div style="
+        height:32px; 
+        background:#e0e0e0; 
+        border-radius:8px; 
+        margin-bottom:20px;
+        width:70%;
+        margin-left:auto;
+        margin-right:auto;
+      "></div>
+      
+      <!-- Content Skeleton -->
+      <div style="background:#f8f9fa; padding:20px; border-radius:12px;">
+        <div style="height:20px; background:#e0e0e0; border-radius:4px; margin-bottom:12px;"></div>
+        <div style="height:20px; background:#e0e0e0; border-radius:4px; margin-bottom:12px; width:80%;"></div>
+        <div style="height:20px; background:#e0e0e0; border-radius:4px; width:60%;"></div>
+      </div>
+    </div>
+    
+    <style>
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+    </style>
+  `;
+}
+
+function displayDocumentInModal(doc) {
+  if (!doc || !doc.id) {
+    showError('ข้อมูลเอกสารไม่สมบูรณ์');
+    closeModal('viewModal');
+    return;
+  }
+  
+  const icon = getDocIcon(doc.document_type);
+  
+  // Parse ไฟล์แนบ
+  let fileLinksHtml = '';
+  try {
+    if (doc.file_objects_json) {
+      const fileObjects = JSON.parse(doc.file_objects_json);
+     // ภายในฟังก์ชัน displayDocumentInModal - ส่วนที่สร้าง fileLinksHtml
+if (Array.isArray(fileObjects) && fileObjects.length > 0) {
+  currentDocFiles = fileObjects;
+  currentFilePage = 1;
+
+  const totalFiles = fileObjects.length;
+  const totalFilePages = Math.ceil(totalFiles / FILES_PER_PAGE);
+
+  // ✅ แก้ไข: จัดโครงสร้างใหม่ให้ pagination อยู่ด้านล่าง
+  fileLinksHtml = `
+    <h3 style="margin-top:20px; margin-bottom:10px;">
+      <i class="fas fa-paperclip"></i> ไฟล์แนบ (${totalFiles} ไฟล์):
+    </h3>
+    
+    <!-- Container หลัก -->
+    <div style="
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      background: #fafafa;
+      overflow: hidden;
+    ">
+      <!-- รายการไฟล์ (scroll ได้) -->
+      <div id="fileLinksContainer" 
+           data-scrollable="true"
+           style="
+             flex: 1;
+             max-height: 45vh;
+             overflow-y: auto;
+             -webkit-overflow-scrolling: touch;
+             overscroll-behavior: contain;
+             padding: 12px;
+           "></div>
+      
+      <!-- ✅ Pagination อยู่ด้านล่างสุด (นอก scroll area) -->
+      <div id="filePagination" style="
+        display: ${totalFiles > FILES_PER_PAGE ? 'flex' : 'none'};
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: white;
+        border-top: 1px solid #e0e0e0;
+      ">
+        <button id="filePrevBtn" onclick="previousFilePage()" class="btn" style="
+          padding: 10px 16px;
+          background: #9E826B;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        ">
+          <i class="fas fa-chevron-left"></i> ก่อนหน้า
+        </button>
+        
+        <span id="filePageInfo" style="
+          font-size: 13px;
+          color: #666;
+          font-weight: 600;
+          min-width: 80px;
+          text-align: center;
+        ">หน้า 1 จาก ${Math.max(1, totalFilePages)}</span>
+        
+        <button id="fileNextBtn" onclick="nextFilePage()" class="btn" style="
+          padding: 10px 16px;
+          background: #9E826B;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        ">
+          ถัดไป <i class="fas fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+    } else if (doc.file_url) {
+      fileLinksHtml = `
+        <h3 style="margin-top:20px;margin-bottom:10px;">
+          <i class="fas fa-file"></i> ไฟล์:
+        </h3>
+        <div style="padding:12px;background:#f8f9fa;border-radius:8px;">
+          <a href="${doc.file_url}" target="_blank" style="text-decoration:none;font-weight:600;color:#007bff;">
+            <i class="fas fa-external-link-alt"></i> เปิดไฟล์
+          </a>
+        </div>
+      `;
+    }
+  } catch (e) {
+    console.error('❌ JSON Parse Error:', e);
+    if (doc.file_url) {
+      fileLinksHtml = `
+        <h3 style="margin-top:20px;margin-bottom:10px;">
+          <i class="fas fa-file"></i> ไฟล์:
+        </h3>
+        <div style="padding:12px;background:#f8f9fa;border-radius:8px;">
+          <a href="${doc.file_url}" target="_blank" style="text-decoration:none;font-weight:600;color:#007bff;">
+            <i class="fas fa-external-link-alt"></i> เปิดไฟล์
+          </a>
+        </div>
+      `;
+    }
+  }
+
+  const modalBody = document.getElementById('viewModalBody');
+  if (!modalBody) {
+    console.error('❌ ไม่พบ viewModalBody');
+    return;
+  }
+  
+  modalBody.innerHTML = `
+    <div style="text-align: center; margin-bottom: 20px;">
+      <div style="font-size: 64px; margin-bottom: 12px;">${icon}</div>
+      <h2 style="color: #333; margin-bottom: 8px;">${escapeHtml(doc.title || 'ไม่มีชื่อ')}</h2>
+      <span class="badge ${getBadgeClass(doc.document_type)}">${escapeHtml(doc.document_type || '')}</span>
+    </div>
+   
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 16px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+        <div>
+          <div style="color: #999; font-size: 13px; margin-bottom: 4px;">หมวดหมู่</div>
+          <div style="font-weight: 600;">${escapeHtml(doc.category || '-')}</div>
+        </div>
+        <div>
+          <div style="color: #999; font-size: 13px; margin-bottom: 4px;">วันที่เอกสาร</div>
+          <div style="font-weight: 600;">${escapeHtml(doc.document_date || '-')}</div>
+        </div>
+        <div>
+          <div style="color: #999; font-size: 13px; margin-bottom: 4px;">ผู้ส่ง</div>
+          <div style="font-weight: 600;">${escapeHtml(doc.submitter_name || '-')}</div>
+        </div>
+        ${doc.tags ? `
+          <div>
+            <div style="color: #999; font-size: 13px; margin-bottom: 4px;">แท็ก</div>
+            <div style="font-weight: 600;">${escapeHtml(doc.tags)}</div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+   
+    ${doc.description ? `
+      <div>
+        <h3 style="margin-bottom: 10px;"><i class="fas fa-sticky-note"></i> หมายเหตุ</h3>
+        <div style="padding: 16px; background: #f8f9fa; border-radius: 8px; line-height: 1.6;">
+          ${escapeHtml(doc.description)}
+        </div>
+      </div>
+    ` : ''}
+   
+    ${fileLinksHtml}
+   
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #999; text-align: center;">
+      <i class="fas fa-clock"></i> บันทึกเมื่อ: ${escapeHtml(doc.timestamp || '-')}
+    </div>
+  `;
+
+  // เรนเดอร์ไฟล์หน้าแรก
+  if (currentDocFiles && currentDocFiles.length > 0) {
+    renderFilePage();
+  }
+  
+  console.log('✅ แสดงข้อมูลเอกสารเรียบร้อย');
+}
+
+    
+    // Edit Document
+    function editDocument(docId) {
+  // ⭐ เปิด Modal ทันที
+  openModal('editModal');
+  
+  // แสดง Loading ในฟอร์ม
+  disableEditForm(true);
+  
+  // ⭐ ดึงข้อมูลจาก Cache ก่อน
+  const cachedDoc = findDocumentInCache(docId);
+  
+  if (cachedDoc) {
+    console.log('✅ ใช้ข้อมูลจาก Cache');
+    fillEditForm(cachedDoc);
+    disableEditForm(false);
+  }
+  
+  // โหลดข้อมูลล่าสุดจาก Server
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        fillEditForm(result.data);
+        disableEditForm(false);
+      } else {
+        showError('ไม่สามารถโหลดข้อมูลได้');
+        closeModal('editModal');
+      }
+    })
+    .withFailureHandler(function(error) {
+      showError('เกิดข้อผิดพลาด: ' + error);
+      closeModal('editModal');
+    })
+    .getDocumentById(docId);
+}
+
+// ⭐ ฟังก์ชันกรอกข้อมูลในฟอร์ม (แยกออกมา)
+function fillEditForm(doc) {
+  document.getElementById('edit_doc_id').value = doc.id;
+  document.getElementById('edit_title').value = doc.title;
+  document.getElementById('edit_category').value = doc.category;
+  document.getElementById('edit_document_type').value = doc.document_type;
+  
+  // Format date
+  if (doc.document_date) {
+    const dateParts = doc.document_date.split(' ');
+    if (dateParts.length > 0) {
+      const monthMap = {
+        'มกราคม': '01', 'กุมภาพันธ์': '02', 'มีนาคม': '03', 'เมษายน': '04',
+        'พฤษภาคม': '05', 'มิถุนายน': '06', 'กรกฎาคม': '07', 'สิงหาคม': '08',
+        'กันยายน': '09', 'ตุลาคม': '10', 'พฤศจิกายน': '11', 'ธันวาคม': '12'
+      };
+      
+      const day = dateParts[0];
+      const month = monthMap[dateParts[1]];
+      const year = parseInt(dateParts[2]) - 543;
+      
+      if (day && month && year) {
+        document.getElementById('edit_document_date').value = 
+          `${year}-${month}-${day.padStart(2, '0')}`;
+      }
+    }
+  }
+  
+  document.getElementById('edit_submitter_name').value = doc.submitter_name;
+  document.getElementById('edit_tags').value = doc.tags || '';
+  document.getElementById('edit_description').value = doc.description || '';
+  
+  // ⭐ แสดงไฟล์ที่อัปโหลด
+  displayEditFiles(doc);
+}
+
+// ⭐ ฟังก์ชันแสดงไฟล์ใน Edit Modal
+function displayEditFiles(doc) {
+  const fileListContainer = document.getElementById('edit_file_list');
+  if (!fileListContainer) return;
+  
+  // ตรวจสอบว่ามีไฟล์หรือไม่
+  let files = [];
+  try {
+    if (doc.file_objects_json) {
+      files = JSON.parse(doc.file_objects_json);
+    }
+  } catch (e) {
+    console.error('Error parsing file_objects_json:', e);
+  }
+  
+  if (!files || files.length === 0) {
+    fileListContainer.className = 'file-list-container empty';
+    fileListContainer.innerHTML = '<i class="fas fa-inbox"></i> ไม่มีไฟล์แนบ';
+    return;
+  }
+  
+  // แสดงรายการไฟล์
+  fileListContainer.className = 'file-list-container';
+  let html = '';
+  
+  files.forEach(function(file, index) {
+    const fileIcon = getFileIcon(file.mimeType || file.type);
+    const fileName = file.name || 'ไฟล์ ' + (index + 1);
+    
+    html += '<div class="file-item">';
+    html += '  <div class="file-item-icon">' + fileIcon + '</div>';
+    html += '  <div class="file-item-info">';
+    html += '    <div class="file-item-name">' + escapeHtml(fileName) + '</div>';
+    
+    if (file.url || file.webViewLink) {
+      const fileUrl = file.url || file.webViewLink;
+      html += '    <a href="' + escapeHtml(fileUrl) + '" target="_blank" class="file-item-link">';
+      html += '      <i class="fas fa-external-link-alt"></i> เปิดไฟล์';
+      html += '    </a>';
+    }
+    
+    html += '  </div>';
+    html += '</div>';
+  });
+  
+  fileListContainer.innerHTML = html;
+}
+
+// ⭐ ฟังก์ชันแสดงไอคอนไฟล์ตาม MIME type
+function getFileIcon(mimeType) {
+  if (!mimeType) return '📄';
+  
+  if (mimeType.includes('pdf')) return '📕';
+  if (mimeType.includes('word') || mimeType.includes('document')) return '📘';
+  if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📗';
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return '📙';
+  if (mimeType.includes('image')) return '🖼️';
+  if (mimeType.includes('video')) return '🎥';
+  if (mimeType.includes('audio')) return '🎵';
+  if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('compressed')) return '📦';
+  
+  return '📄';
+}
+
+// ⭐ ฟังก์ชัน Disable/Enable ฟอร์ม
+function disableEditForm(disabled) {
+  const form = document.getElementById('editDocumentForm');
+  if (!form) return;
+  
+  const inputs = form.querySelectorAll('input, select, textarea');
+  inputs.forEach(input => {
+    input.disabled = disabled;
+    if (disabled) {
+      input.style.opacity = '0.6';
+      input.style.cursor = 'wait';
+    } else {
+      input.style.opacity = '1';
+      input.style.cursor = '';
+    }
+  });
+}
+    
+ // เมื่อแก้ไขเอกสารสำเร็จ
+function handleEditDocument(event) {
+  event.preventDefault();
+  
+  const docId = document.getElementById('edit_doc_id').value;
+  const documentData = {
+    title: document.getElementById('edit_title').value,
+    category: document.getElementById('edit_category').value,
+    document_type: document.getElementById('edit_document_type').value,
+    document_date: document.getElementById('edit_document_date').value,
+    submitter_name: document.getElementById('edit_submitter_name').value,
+    tags: document.getElementById('edit_tags').value,
+    description: document.getElementById('edit_description').value
+  };
+  
+  showLoading('กำลังแก้ไขเอกสาร...');
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        closeModal('editModal');
+        
+        // ⭐ ล้าง Cache และโหลดใหม่
+        clearCache();
+        console.log('🗑️ ล้าง Cache หลังแก้ไข');
+        
+        showLoading('กำลังโหลดข้อมูลใหม่...');
+        
+        setTimeout(() => {
+          google.script.run
+            .withSuccessHandler(function(refreshResult) {
+              hideLoading();
+              
+              if (refreshResult && refreshResult.success) {
+                allDocuments = refreshResult.data || [];
+                totalPages = refreshResult.totalPages || 1;
+                currentPage = refreshResult.page || 1;
+                
+                renderDocuments(allDocuments);
+                updatePagination(refreshResult);
+                loadFilters();
+                loadStatistics();
+                
+                Swal.fire({
+                  icon: 'success',
+                  title: 'แก้ไขเอกสารสำเร็จ!',
+                  timer: 2000,
+                  showConfirmButton: false
+                });
+                
+                console.log('✅ อัปเดตข้อมูลเรียบร้อย');
+              }
+            })
+            .withFailureHandler(function(error) {
+              hideLoading();
+              showError('เกิดข้อผิดพลาด: ' + error);
+            })
+            .getDocumentsPaginated(currentPage, pageSize, currentFilters);
+        }, 500);
+        
+      } else {
+        hideLoading();
+        showError('ไม่สามารถแก้ไขเอกสารได้: ' + result.error);
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showError('เกิดข้อผิดพลาด: ' + error);
+    })
+    .updateDocument(docId, documentData);
+}
+
+  /**
+ * ✅ ลบเอกสาร - ถามรหัสผ่าน Admin
+ */
+function deleteDocument(docId) {
+  Swal.fire({
+    title: '🔐 ยืนยันการลบ',
+    text: 'กรุณาใส่รหัสผ่าน Admin เพื่อยืนยัน',
+    input: 'password',
+    inputAttributes: {
+      autocapitalize: 'off',
+      placeholder: 'รหัสผ่าน...',
+      id: 'swal-delete-password'
+    },
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc3545',
+    cancelButtonColor: '#6c757d',
+    confirmButtonText: 'ลบเลย',
+    cancelButtonText: 'ยกเลิก',
+    showLoaderOnConfirm: true,
+    
+    // ⭐ รองรับปุ่ม Enter และแก้ Z-Index
+    didOpen: function() {
+      // แก้ Z-Index ให้สูงสุด
+      var container = Swal.getContainer();
+      if (container) {
+        container.style.setProperty('z-index', '99999', 'important');
+      }
+      
+      // โฟกัสช่องรหัสผ่าน + ดักจับปุ่ม Enter
+      var input = Swal.getInput();
+      if (input) {
+        input.focus();
+        input.addEventListener('keypress', function(e) {
+          if (e.key === 'Enter') {
+            Swal.clickConfirm();
+          }
+        });
+      }
+    },
+    
+    preConfirm: function(password) {
+      if (!password) {
+        Swal.showValidationMessage('กรุณาใส่รหัสผ่าน');
+        return false;
+      }
+      
+      // ⭐ เรียกฟังก์ชันลบด้วยรหัสผ่าน
+      return deleteDocumentWithPassword(docId, password)
+        .catch(function(error) {
+          Swal.showValidationMessage(error.message || 'เกิดข้อผิดพลาด');
+        });
+    },
+    
+    allowOutsideClick: function() {
+      return !Swal.isLoading();
+    }
+    
+  }).then(function(result) {
+    if (result.isConfirmed) {
+      // ✅ ลบสำเร็จ - แสดงข้อความ
+      Swal.fire({
+        icon: 'success',
+        title: 'ลบสำเร็จ!',
+        text: 'ลบเอกสารเรียบร้อยแล้ว',
+        timer: 2000,
+        showConfirmButton: false
+      });
+      
+      // โหลดข้อมูลใหม่
+      clearCache();
+      loadDocuments(true);
+      loadStatistics();
+    }
+  });
+}
+
+/**
+ * ✅ ฟังก์ชันลบเอกสารด้วยรหัสผ่าน (รองรับ Promise)
+ */
+function deleteDocumentWithPassword(docId, password) {
+  return new Promise(function(resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result.success) {
+          resolve(result);
+        } else {
+          reject(new Error(result.error || 'ลบไม่สำเร็จ'));
+        }
+      })
+      .withFailureHandler(function(error) {
+        reject(error);
+      })
+      .deleteDocumentWithPassword(docId, password);
+  });
+}
+
+
+// ⭐ ฟังก์ชันลบแบบ Optimistic UI
+// ⭐ ฟังก์ชันลบแบบ Optimistic UI พร้อมรหัสผ่าน
+async function deleteDocumentOptimisticWithPassword(docId, password) {
+  // หา Element ของเอกสาร
+  const docElement = document.querySelector(`[data-id="${docId}"]`) || 
+                     document.querySelector(`[onclick*="viewDocument(${docId})"]`)?.closest('.document-card, .document-list-item');
+  
+  // เพิ่ม Fade Out Animation
+  if (docElement) {
+    docElement.style.transition = 'all 0.3s ease';
+    docElement.style.opacity = '0';
+    docElement.style.transform = 'scale(0.9)';
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  
+  // 1. หาเอกสารที่จะลบ
+  const docIndex = allDocuments.findIndex(d => d.id == docId);
+  
+  if (docIndex === -1) {
+    throw new Error('ไม่พบเอกสาร');
+  }
+  
+  // 2. เก็บข้อมูลเดิมไว้ (สำหรับ Rollback)
+  const deletedDoc = allDocuments[docIndex];
+  const deletedDocCopy = { ...deletedDoc };
+  
+  // 3. ⚡ ลบออกจาก UI ทันที
+  allDocuments.splice(docIndex, 1);
+  filteredDocuments = [...allDocuments];
+  
+  // อัปเดต UI ทันที
+  renderDocuments(filteredDocuments);
+  
+  // แสดง Toast กำลังลบ
+  const loadingToast = Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'info',
+    title: 'กำลังลบ...',
+    showConfirmButton: false,
+    timer: 30000,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+  
+  try {
+    // 4. ส่ง Request พร้อมรหัสผ่านไปที่ Server
+    const result = await new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .deleteDocumentWithPassword(docId, password);
+    });
+    
+    // 5. ตรวจสอบผลลัพธ์
+    if (result.success) {
+      // ✅ สำเร็จ - ล้าง Cache และอัปเดต Stats
+      clearCache();
+      loadStatistics();
+      
+      loadingToast.close();
+      
+      // แสดงข้อความสำเร็จ
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: '✅ ลบเอกสารสำเร็จ',
+        showConfirmButton: false,
+        timer: 2000
+      });
+      
+      console.log('✅ ลบเอกสารสำเร็จ:', deletedDoc.title);
+      
+    } else {
+      // ❌ ล้มเหลว - Rollback (รหัสผ่านผิดหรือเกิดข้อผิดพลาด)
+      const errorMsg = result.error || 'ไม่สามารถลบได้';
+      console.error('❌ Delete failed:', errorMsg);
+      throw new Error(errorMsg);
+    }
+    
+  } catch (error) {
+    // ❌ เกิดข้อผิดพลาด - Rollback
+    console.error('❌ ลบเอกสารล้มเหลว:', error);
+    
+    // เอาข้อมูลกลับมา
+    allDocuments.splice(docIndex, 0, deletedDocCopy);
+    filteredDocuments = [...allDocuments];
+    renderDocuments(filteredDocuments);
+    
+    loadingToast.close();
+    
+    // แสดงข้อความผิดพลาด
+    const errorMessage = error.message || 'ไม่สามารถลบเอกสารได้';
+    Swal.fire({
+      icon: 'error',
+      title: 'ลบไม่สำเร็จ',
+      text: errorMessage,
+      confirmButtonColor: '#dc3545'
+    });
+    
+    throw error;
+  }
+}
+
+ // ⭐ เพิ่มฟังก์ชันนี้ใหม่ (วางหลังฟังก์ชัน deleteDocumentOptimistic)
+
+/**
+ * ลบเอกสารพร้อม Fade Out Animation
+ */
+ // ===== เพิ่มฟังก์ชันนี้ใหม่ =====
+
+function showCacheStatus() {
+  const status = {
+    hasData: !!documentsCache.data,
+    dataCount: documentsCache.data ? documentsCache.data.length : 0,
+    age: documentsCache.timestamp ? 
+         Math.floor((Date.now() - documentsCache.timestamp) / 1000) : 0,
+    isValid: isCacheValid(),
+    page: documentsCache.page,
+    filters: documentsCache.filters
+  };
+  
+  console.table(status);
+  return status;
+}
+
+// ===== ค้นหาและแก้ไขฟังก์ชัน handleAddDocument =====
+function handleAddDocument(event) {
+  event.preventDefault();
+  
+  const form = event.target;
+  
+  // ⭐ เช็ค HTML5 validation ก่อน
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+  
+  // ⭐ แสดง Toast แจ้งเตือนทันที (ไม่บล็อก UI)
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'info',
+    title: '⏳ กำลังตรวจสอบข้อมูล...',
+    showConfirmButton: false,
+    timer: 1500,
+    timerProgressBar: true,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+  
+  // ⭐ Disable ปุ่มบันทึก + แสดงสถานะ
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const cancelBtn = document.querySelector('.btn-cancel');
+  
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = '0.6';
+    submitBtn.style.cursor = 'not-allowed';
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังบันทึก...';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.disabled = true;
+    cancelBtn.style.opacity = '0.6';
+  }
+  
+  // ⭐ ใช้ requestAnimationFrame เพื่อให้ UI update ก่อน
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      try {
+        const documentData = {
+          title: document.getElementById('add_title').value,
+          category: document.getElementById('add_category').value,
+          document_type: document.getElementById('add_document_type').value,
+          document_date: document.getElementById('add_document_date').value,
+          submitter_name: document.getElementById('add_submitter_name').value,
+          tags: document.getElementById('add_tags').value,
+          description: document.getElementById('add_description').value
+        };
+        
+        console.log('📝 ข้อมูลที่จะส่ง:', documentData);
+        
+        // เปลี่ยนข้อความ Toast
+        Swal.update({
+          title: '💾 กำลังบันทึกเอกสาร...',
+          timer: 30000
+        });
+        
+        // เช็ค URL/ไฟล์
+        const urlInput = document.getElementById('urlInput');
+        const hasUrls = urlInput && urlInput.value.trim().length > 0;
+        const hasFiles = selectedFiles && selectedFiles.length > 0;
+        
+        console.log('🔗 มี URL:', hasUrls);
+        console.log('📁 มีไฟล์:', hasFiles);
+        
+        // ดำเนินการ
+        if (hasUrls) {
+          if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังประมวลผล URL...';
+          Swal.update({ title: '🔗 กำลังประมวลผล URL...' });
+          handleUrlUpload(documentData);
+        } else if (hasFiles) {
+          if (!validateFileSize()) {
+            enableSubmitButton();
+            return;
+          }
+          if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังอัปโหลดไฟล์...';
+          Swal.update({ title: '📤 กำลังอัปโหลดไฟล์...' });
+          handleFileUpload(documentData);
+        } else {
+          if (submitBtn) submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังบันทึก...';
+          Swal.update({ title: '💾 กำลังบันทึกเอกสาร...' });
+          addDocumentToSheet(documentData);
+        }
+        
+      } catch (error) {
+        console.error('❌ Error:', error);
+        enableSubmitButton();
+        
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: error.message,
+          confirmButtonText: 'ตกลง'
+        });
+      }
+    });
+  });
+}
+
+function showDetailedProgress(current, total, message = '') {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  
+  if (!overlay.classList.contains('active')) {
+    showLoading('กำลังประมวลผล...');
+  }
+  
+  const percent = Math.round((current / total) * 100);
+  const timeElapsed = window.__uploadStartTime ? 
+    Math.round((Date.now() - window.__uploadStartTime) / 1000) : 0;
+  
+  overlay.innerHTML = `
+    <div style="
+      background: white;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+      text-align: center;
+      animation: scaleIn 0.3s ease-out;
+      max-width: 450px;
+      width: 90%;
+    ">
+      <!-- Progress Circle -->
+      <div style="
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 24px;
+        position: relative;
+      ">
+        <svg width="120" height="120" style="transform: rotate(-90deg);">
+          <circle cx="60" cy="60" r="54" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+          <circle cx="60" cy="60" r="54" fill="none" stroke="#667eea" stroke-width="8"
+                  stroke-dasharray="${2 * Math.PI * 54}"
+                  stroke-dashoffset="${2 * Math.PI * 54 * (1 - percent/100)}"
+                  style="transition: stroke-dashoffset 0.3s ease;"/>
+        </svg>
+        <div style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          font-size: 32px;
+          font-weight: 900;
+          color: #667eea;
+        ">${percent}%</div>
+      </div>
+      
+      <!-- Message -->
+      <div style="
+        color: #1e293b;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      ">${message || 'กำลังประมวลผล...'}</div>
+      
+      <!-- Details -->
+      <div style="
+        color: #64748b;
+        font-size: 14px;
+        margin-bottom: 16px;
+      ">
+        ${current} / ${total} ${currentUploadMethod === 'file' ? 'ไฟล์' : 'รายการ'}
+        ${timeElapsed > 0 ? `<br><small>ใช้เวลา: ${timeElapsed} วินาที</small>` : ''}
+      </div>
+      
+      <!-- Progress Bar -->
+      <div style="
+        width: 100%;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-top: 16px;
+      ">
+        <div style="
+          width: ${percent}%;
+          height: 100%;
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+          transition: width 0.3s ease;
+        "></div>
+      </div>
+    </div>
+  `;
+}
+// เรียกฟังก์ชันนี้ "ภายใน" handleUrlUpload()
+function collectUrlsFromUI() {
+  const out = [];
+
+  // 1) textarea หลัก
+  const ta = document.querySelector('#urlInput, #urlTextarea, textarea[name="urls"]');
+  if (ta && ta.value) {
+    ta.value
+      .split(/[\n,;]+/)
+      .map(s => (s || '').trim())
+      .filter(Boolean)
+      .forEach(u => out.push(u));
+  }
+
+  // 2) อินพุตย่อย/ชิป ถ้ามี
+  document.querySelectorAll('.url-item input[type="text"], .url-chip[data-url]')
+    .forEach(el => {
+      const v = (el.dataset.url || el.value || '').trim();
+      if (v) out.push(v);
+    });
+
+  // 3) เดดิวพ์ + แปลงเป็นสตริงชัวร์ ๆ
+  return Array.from(new Set(out.map(x => String(x))));
+}
+
+async function handleUrlUpload(documentData) {
+  console.log('🔗 handleUrlUpload', documentData);
+
+  const rawUrls = collectUrlsFromUI();
+  if (!rawUrls.length) {
+    showError('กรุณาระบุ URL อย่างน้อย 1 รายการ');
+    enableSubmitButton();
+    return;
+  }
+
+  const category = String(documentData?.category || '').trim();
+
+  google.script.run
+    .withSuccessHandler((res) => {
+      const items = Array.isArray(res) ? res : (res && res.data) || [];
+
+      // มีสักรายการที่ success ไหม
+      const ok = items.some(x => x && x.success);
+      if (!ok) {
+        const firstErr = items.find(x => x && x.error);
+        showError('อัปโหลดจาก URL ล้มเหลว' + (firstErr ? `: ${firstErr.error}` : ''));
+        enableSubmitButton();
+        return;
+      }
+
+      // 🔗 map ผลลัพธ์จาก server → file_objects[]
+      const files = items
+        .filter(x => x && x.success)
+        .map(x => ({
+          name: x.fileName || x.name || 'ไฟล์',
+          url:  x.previewUrl || x.fileUrl || x.url || '',
+          fileUrl: x.fileUrl || x.url || '',
+          previewUrl: x.previewUrl || ''
+        }));
+
+      // ✅ รวมเข้ากับข้อมูลแบบฟอร์ม แล้วบันทึกลงชีต
+      documentData.file_objects_json = JSON.stringify(files);
+      addDocumentToSheet(documentData);
+    })
+    .withFailureHandler(err => {
+      showError('อัปโหลดจาก URL ล้มเหลว: ' + ((err && err.message) || err));
+      enableSubmitButton();
+    })
+    .uploadMultipleFilesFromUrls(rawUrls, category); // ใช้ compat เสมอ
+}
+
+
+// เรียก Apps Script (compat) + จัดการผลลัพธ์ให้รัดกุม
+
+function proceedUploadUrls(validUrls, documentData) {
+  const category = String(documentData?.category || '').trim();
+
+  // กันกดซ้ำตอนกำลังอัปโหลด
+  disableSubmitButton?.();
+
+  google.script.run
+    .withSuccessHandler((res) => {
+      // ผลที่ได้อาจเป็น array ตรง ๆ หรือเป็น {success, data:[...]}
+      const items = Array.isArray(res) ? res : (res && res.data) || [];
+
+      // คัดเฉพาะที่สำเร็จ
+      const okItems = items.filter(x => x && x.success);
+      if (!okItems.length) {
+        const firstErr = items.find(x => x && x.error);
+        showError('อัปโหลดจาก URL ล้มเหลว' + (firstErr ? `: ${firstErr.error}` : ''));
+        enableSubmitButton?.();
+        return;
+      }
+
+      // map → file objects ที่ระบบใช้
+      const files = okItems.map(x => ({
+        name: x.fileName || 'ไฟล์จาก URL',
+        url:  x.fileUrl || x.previewUrl || x.originalUrl || '',
+        fileUrl: x.fileUrl || x.previewUrl || x.originalUrl || '',
+        previewUrl: x.previewUrl || '',
+        size: x.size || '',
+        mimeType: x.mimeType || ''
+      }));
+
+      // แนบเข้า documentData แล้วเรียกบันทึก
+      documentData.file_objects = files;
+      documentData.file_objects_json = JSON.stringify(files);
+
+      addDocumentToSheet(documentData);  // <-- สำคัญ
+    })
+    .withFailureHandler(err => {
+      showError('อัปโหลดจาก URL ล้มเหลว: ' + (err && err.message || err));
+      enableSubmitButton?.();
+    })
+    .uploadMultipleFilesFromUrlsCompat(validUrls, category);
+}
+
+
+
+function onUrlsUploaded(items) {
+  console.log('✅ onUrlsUploaded', items);
+
+  // สร้างรายการไฟล์/ลิงก์ สำหรับเก็บในคอลัมน์ "อัปโหลดไฟล์"
+  const fileObjects = items.map(it => ({
+    name: it.fileName || it.name || 'ไม่ระบุชื่อ',
+    url:  it.previewUrl || it.viewUrl || it.fileUrl || it.url || '',
+    id:   it.fileId || it.id || '',
+    mimeType: it.mimeType || '',
+    size: it.size || '',
+    isLink: !!it.isLink
+  }));
+
+  // 🔗 ดึงข้อมูลฟอร์มเดิมที่เราเก็บไว้
+  const base = window.currentDocumentData || {};
+
+  // ✅ รวมข้อมูลฟอร์ม + ไฟล์ แล้วค่อยบันทึก
+  const doc = {
+    title:           base.title || '',
+    category:        base.category || '',
+    document_type:   base.document_type || '',
+    document_date:   base.document_date || '',  // ควรเป็นรูปแบบ YYYY-MM-DD
+    submitter_name:  base.submitter_name || base.submitter_email || '',
+    tags:            base.tags || '',
+    description:     base.description || '',
+    file_objects_json: JSON.stringify(fileObjects)
+  };
+
+  if (typeof addDocumentToSheet === 'function') {
+    addDocumentToSheet(doc);
+  } else {
+    console.warn('⚠️ addDocumentToSheet ไม่พบ');
+    showError('ไม่พบฟังก์ชันบันทึกเอกสาร');
+    enableSubmitButton();
+  }
+}
+
+
+
+
+/**
+ * ⭐ ฟังก์ชันดำเนินการอัปโหลด URL
+ */
+
+// ✅ ฟังก์ชันอัปโหลดจาก URL (แก้ใหม่)
+function proceedWithUrls(urls, documentData) {
+  console.log('🔢 จำนวน URL ที่จะอัปโหลด:', urls.length);
+
+  // แสดง progress
+  showProgressOnModal('กำลังประมวลผล URL.', 10, `กำลังตรวจสอบ ${urls.length} URL`);
+
+  // ✅ เตรียม payload ให้ตรงกับ GAS: [{url, category}, ...]
+  const urlsData = urls.map(url => ({
+    url,
+    category: documentData.category
+  }));
+
+  google.script.run
+    .withSuccessHandler((result) => {
+      console.log('📥 uploadMultipleFilesFromUrls →', result);
+      if (!result || !result.success) {
+        showErrorOnFooter('อัปโหลดจาก URL ล้มเหลว');
+        enableSubmitButton();
+        return;
+      }
+
+      const ok = (result.data || []).filter(x => x && x.success);
+      const fail = (result.data || []).filter(x => !x || !x.success);
+
+      if (!ok.length) {
+        showErrorOnFooter('ไม่สามารถอัปโหลดจาก URL ได้');
+        enableSubmitButton();
+        return;
+      }
+
+      // จัดรูปเป็น file_objects ให้บันทึกลงชีต
+      documentData.file_objects = ok.map(x => ({
+        name: x.fileName || 'ลิงก์',
+        url: x.fileUrl || x.previewUrl || '',
+        fileUrl: x.fileUrl || x.previewUrl || '',
+        previewUrl: x.previewUrl || x.fileUrl || '',
+        linkType: x.linkType || (x.isLink ? 'link' : 'file'),
+        mimeType: x.mimeType || '',
+        original_url: x.originalUrl
+      }));
+
+      if (fail.length) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'อัปโหลดบางรายการไม่สำเร็จ',
+          html: `
+            <p>สำเร็จ ${ok.length} / ล้มเหลว ${fail.length}</p>
+            <div style="max-height:200px;overflow:auto;text-align:left">
+              ${fail.map(f => `<div>• ${escapeHtml(f?.originalUrl || '')}</div>`).join('')}
+            </div>
+            <p><small>จะบันทึกเฉพาะรายการที่สำเร็จ</small></p>
+          `,
+          confirmButtonText: 'ตกลง'
+        }).then(() => addDocumentToSheet(documentData));
+      } else {
+        addDocumentToSheet(documentData);
+      }
+    })
+    .withFailureHandler((error) => {
+      console.error('❌ uploadMultipleFilesFromUrls error:', error);
+      showErrorOnFooter('เกิดข้อผิดพลาด: ' + (error?.message || String(error)));
+      enableSubmitButton();
+    })
+    // ⛳️ เรียกแบบส่ง urlsData (ไม่ใช่ urls ธรรมดา)
+    .uploadMultipleFilesFromUrls(urlsData);
+}
+
+
+
+
+
+// ⭐ ฟังก์ชันเพิ่มไฟล์เข้า Array
+function addFilesToList(files) {
+  const maxSize = 500 * 1024 * 1024; // 500MB
+
+  for (const file of files) {
+    if (file.size > maxSize) {
+      showError(`ไฟล์ "${file.name}" มีขนาดใหญ่เกิน 500MB`);
+      continue;
+    }
+
+    // หาไฟล์ชื่อซ้ำใน selectedFiles (เทียบตามชื่อไฟล์)
+    const dupIndexByName = selectedFiles.findIndex(f => f.name === file.name);
+
+    if (dupIndexByName !== -1) {
+      // แทนที่ไฟล์เดิมด้วยไฟล์ใหม่ (เงียบ ๆ ไม่ฟ้อง)
+      selectedFiles.splice(dupIndexByName, 1, file);
+    } else {
+      // เพิ่มไฟล์ใหม่
+      selectedFiles.push(file);
+    }
+  }
+
+  // อัปเดต UI
+  displayAllFiles();
+
+  const uploadArea = document.getElementById('fileUploadArea');
+  if (uploadArea && selectedFiles.length > 0) {
+    uploadArea.classList.add('has-file');
+  }
+}
+
+// ===== เพิ่มในฟังก์ชัน displayAllFiles (หาบรรทัดที่มี fileNameDisplay.style.display = 'block';) =====
+
+function displayAllFiles() {
+  const fileNameDisplay = document.getElementById('fileNameDisplay');
+  const container = document.getElementById('fileListContainer');
+
+  if (!container || !fileNameDisplay) return;
+
+  if (selectedFiles.length === 0) {
+    fileNameDisplay.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = '';
+
+  const iconMap = {
+    'pdf':'📕','doc':'📘','docx':'📘',
+    'xls':'📗','xlsx':'📗','ppt':'📙','pptx':'📙',
+    'jpg':'🖼️','jpeg':'🖼️','png':'🖼️','gif':'🖼️',
+    'mp4':'🎬','mov':'🎬','avi':'🎬','mkv':'🎬','wmv':'🎬',
+    'zip':'📦','rar':'📦'
+  };
+
+  // ⭐ คำนวณขนาดรวม
+  let totalSize = 0;
+  selectedFiles.forEach(file => totalSize += file.size);
+  const totalSizeMB = (totalSize / (1024*1024)).toFixed(2);
+
+  selectedFiles.forEach((file, index) => {
+    const sizeMB = (file.size / (1024*1024)).toFixed(2);
+    const sizeKB = (file.size / 1024).toFixed(2);
+    const sizeText = (file.size >= 1024*1024) ? `${sizeMB} MB` : `${sizeKB} KB`;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const icon = iconMap[ext] || '📄';
+
+    container.insertAdjacentHTML('beforeend', `
+      <div class="file-list-item" id="file-item-${index}">
+        <div class="file-icon">${icon}</div>
+        <div class="file-details">
+          <div class="file-name">${escapeHtml(file.name)}</div>
+          <div class="file-size">${sizeText}</div>
+        </div>
+        <button type="button" class="remove-file-btn" onclick="removeSingleFile(${index})">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    `);
+  });
+
+  // ⭐ แสดงขนาดรวม
+  container.insertAdjacentHTML('beforeend', `
+    <div style="
+      margin-top: 12px;
+      padding: 12px;
+      background: #e3f2fd;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 600;
+      color: #1565c0;
+    ">
+      <i class="fas fa-info-circle"></i> 
+      จำนวนทั้งหมด: ${selectedFiles.length} ไฟล์ 
+      (${totalSizeMB} MB)
+    </div>
+  `);
+
+  fileNameDisplay.style.display = 'block';
+}
+
+// ===== เพิ่มฟังก์ชันนี้ใหม่ (วางหลัง displayAllFiles) =====
+
+function validateFileSize() {
+  const MAX_SINGLE_FILE = 500 * 1024 * 1024; // 500MB ต่อไฟล์
+  const MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024; // 2GB รวมทั้งหมด
+  
+  let totalSize = 0;
+  const oversizedFiles = [];
+  
+  selectedFiles.forEach(file => {
+    totalSize += file.size;
+    if (file.size > MAX_SINGLE_FILE) {
+      oversizedFiles.push(file.name);
+    }
+  });
+  
+  // เช็คไฟล์ใหญ่เกินไป
+  if (oversizedFiles.length > 0) {
+    Swal.fire({
+      icon: 'error',
+      title: 'ไฟล์ใหญ่เกินไป',
+      html: `
+        <p>ไฟล์เหล่านี้มีขนาดเกิน 500MB:</p>
+        <ul style="text-align:left; max-height:200px; overflow:auto;">
+          ${oversizedFiles.map(name => `<li>${escapeHtml(name)}</li>`).join('')}
+        </ul>
+        <p><small>กรุณาลบไฟล์เหล่านี้ออกก่อนอัปโหลด</small></p>
+      `
+    });
+    return false;
+  }
+  
+  // เช็คขนาดรวม
+  if (totalSize > MAX_TOTAL_SIZE) {
+    const totalGB = (totalSize / (1024*1024*1024)).toFixed(2);
+    Swal.fire({
+      icon: 'warning',
+      title: 'ขนาดรวมเกินไป',
+      html: `
+        <p>ขนาดรวมทั้งหมด: <strong>${totalGB} GB</strong></p>
+        <p>ขนาดสูงสุด: <strong>2 GB</strong></p>
+        <p>กรุณาลดจำนวนไฟล์</p>
+      `
+    });
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * ลบไฟล์ทีละรายการตาม index
+ */
+function removeSingleFile(index) {
+  if (index >= 0 && index < selectedFiles.length) {
+    selectedFiles.splice(index, 1);
+    displayAllFiles();
+
+    if (selectedFiles.length === 0) {
+      const area = document.getElementById('fileUploadArea');
+      if (area) area.classList.remove('has-file');
+    }
+  }
+}
+
+/**
+ * ลบไฟล์ทั้งหมด
+ * - ผูกกับปุ่ม "ลบทั้งหมด" เดิม (removeFile() เรียกฟังก์ชันนี้ต่อได้)
+ */
+function removeAllFiles() {
+  selectedFiles = [];
+
+  const fileInput = document.getElementById('add_file');
+  const fileInputMore = document.getElementById('add_file_more');
+  if (fileInput) fileInput.value = '';
+  if (fileInputMore) fileInputMore.value = '';
+
+  const area = document.getElementById('fileUploadArea');
+  const list = document.getElementById('fileListContainer');
+  const box  = document.getElementById('fileNameDisplay');
+
+  if (area) area.classList.remove('has-file');
+  if (list) list.innerHTML = '';
+  if (box)  box.style.display = 'none';
+}
+
+// ===================================================================
+// 📂 FOLDER UPLOAD HANDLER (v9.0)
+// ===================================================================
+
+/**
+ * ⭐ อัปโหลดไฟล์พร้อม Path (รองรับ Folder Upload)
+ */
+function handleFileUploadWithPath(documentData) {
+  if (!selectedFiles || selectedFiles.length === 0) {
+    addDocumentToSheet(documentData);
+    return;
+  }
+
+  window.__uploadStartTime = Date.now();
+  
+  // แสดง Progress
+  showProgressOnModal('กำลังเตรียมอัปโหลด...', 0, `${selectedFiles.length} ไฟล์`);
+  
+  const MAX_CONCURRENT = 5; // ลดลงเพราะมี Path processing
+  let completedCount = 0;
+  const failedFiles = [];
+  const successFiles = [];
+  
+  // ⭐ ฟังก์ชันอัปโหลดไฟล์เดี่ยวพร้อม Path
+  async function uploadSingleFileWithPath(file) {
+    try {
+      const fileData = await readFileAsDataURL(file);
+      
+      // ⭐ ดึง relativePath จาก file object
+      const relativePath = file._relativePath || file.webkitRelativePath || '';
+      
+      return new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler((result) => {
+            if (result.success) {
+              completedCount++;
+              const percent = Math.round((completedCount / selectedFiles.length) * 100);
+              
+              showProgressOnModal(
+                'กำลังอัปโหลดไฟล์...',
+                percent,
+                `เสร็จแล้ว ${completedCount}/${selectedFiles.length} ไฟล์`
+              );
+              
+              resolve({ 
+                name: file.name, 
+                url: result.fileUrl,
+                fileUrl: result.fileUrl,
+                path: relativePath,
+                folderId: result.folderId,
+                folderName: result.folderName,
+                size: file.size,
+                mimeType: result.mimeType
+              });
+            } else {
+              reject(new Error(result.error || 'Upload failed'));
+            }
+          })
+          .withFailureHandler((error) => {
+            reject(error);
+          })
+          .uploadSingleFileWithPath(
+            fileData,
+            file.name,
+            file.type || 'application/octet-stream',
+            relativePath,
+            documentData.category
+          );
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  // ⭐ Queue สำหรับอัปโหลดพร้อมกัน
+  async function uploadWithQueue(files, maxConcurrent) {
+    const queue = [...files];
+    const executing = [];
+    
+    for (const file of queue) {
+      const promise = uploadSingleFileWithPath(file)
+        .then(result => {
+          successFiles.push(result);
+          return result;
+        })
+        .catch(error => {
+          failedFiles.push({ 
+            name: file.name, 
+            path: file._relativePath || '',
+            error: error.message 
+          });
+          console.error(`❌ อัปโหลด ${file.name} ล้มเหลว:`, error);
+          return null;
+        })
+        .finally(() => {
+          executing.splice(executing.indexOf(promise), 1);
+        });
+      
+      executing.push(promise);
+      
+      if (executing.length >= maxConcurrent) {
+        await Promise.race(executing);
+      }
+    }
+    
+    return Promise.all(executing);
+  }
+  
+  // เริ่มอัปโหลด
+  (async function() {
+    try {
+      await uploadWithQueue(selectedFiles, MAX_CONCURRENT);
+      
+      if (failedFiles.length > 0 && successFiles.length > 0) {
+        // บางไฟล์สำเร็จ บางไฟล์ล้มเหลว
+        Swal.fire({
+          icon: 'warning',
+          title: 'อัปโหลดบางส่วนสำเร็จ',
+          html: `
+            <p>สำเร็จ ${successFiles.length} ไฟล์ / ล้มเหลว ${failedFiles.length} ไฟล์</p>
+            <details style="text-align:left; margin-top:12px;">
+              <summary style="cursor:pointer; color:#dc3545;">ดูไฟล์ที่ล้มเหลว</summary>
+              <ul style="max-height:150px; overflow:auto; font-size:13px;">
+                ${failedFiles.map(f => `<li>${escapeHtml(f.name)}: ${escapeHtml(f.error)}</li>`).join('')}
+              </ul>
+            </details>
+          `,
+          confirmButtonText: 'บันทึกเฉพาะที่สำเร็จ',
+          showCancelButton: true,
+          cancelButtonText: 'ยกเลิก'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            documentData.file_objects = successFiles;
+            addDocumentToSheet(documentData);
+          } else {
+            enableSubmitButton();
+          }
+        });
+        
+      } else if (failedFiles.length > 0) {
+        // ทุกไฟล์ล้มเหลว
+        showErrorOnFooter(`อัปโหลดล้มเหลวทั้งหมด ${failedFiles.length} ไฟล์`);
+        enableSubmitButton();
+        
+      } else {
+        // สำเร็จทั้งหมด
+        console.log('✅ อัปโหลดสำเร็จทั้งหมด:', successFiles.length, 'ไฟล์');
+        
+        // ⭐ จัดกลุ่มตาม Folder
+        const folderGroups = {};
+        successFiles.forEach(file => {
+          const folderName = file.folderName || 'root';
+          if (!folderGroups[folderName]) {
+            folderGroups[folderName] = [];
+          }
+          folderGroups[folderName].push(file);
+        });
+        
+        console.log('📁 จัดกลุ่มโฟลเดอร์:', Object.keys(folderGroups));
+        
+        documentData.file_objects = successFiles;
+        addDocumentToSheet(documentData);
+      }
+      
+    } catch (error) {
+      console.error('❌ Upload error:', error);
+      showErrorOnFooter('เกิดข้อผิดพลาดในการอัปโหลด: ' + error.message);
+      enableSubmitButton();
+    }
+  })();
+}
+
+// ===================================================================
+// ⭐ แก้ไข handleFileUpload เดิมให้เรียกใช้ฟังก์ชันใหม่
+// ===================================================================
+
+function handleFileUpload(documentData) {
+  if (!selectedFiles || selectedFiles.length === 0) {
+    addDocumentToSheet(documentData);
+    return;
+  }
+  
+  // ตรวจสอบว่ามีไฟล์จากโฟลเดอร์หรือไม่
+  const hasPathFiles = selectedFiles.some(f => f._relativePath || f.webkitRelativePath);
+  
+  if (hasPathFiles) {
+    console.log('📂 พบไฟล์จากโฟลเดอร์');
+    handleFileUploadWithPath(documentData);
+  } else {
+    console.log('📄 อัปโหลดไฟล์ปกติ');
+    uploadRegularFiles(documentData);
+  }
+}
+
+// ฟังก์ชันอัปโหลดไฟล์ปกติ
+async function uploadRegularFiles(documentData) {
+  window.__uploadStartTime = Date.now();
+  showProgressOnModal('กำลังเตรียมอัปโหลด...', 0, `${selectedFiles.length} ไฟล์`);
+  
+  const MAX_CONCURRENT = 5;
+  let completedCount = 0;
+  const successFiles = [];
+  const failedFiles = [];
+  
+  async function uploadSingleFile(file) {
+    try {
+      const fileData = await readFileAsDataURL(file);
+      
+      return new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(result => {
+            if (result.success) {
+              completedCount++;
+              const percent = Math.round((completedCount / selectedFiles.length) * 100);
+              showProgressOnModal('กำลังอัปโหลด...', percent, `${completedCount}/${selectedFiles.length}`);
+              resolve({
+                name: file.name,
+                url: result.fileUrl,
+                fileUrl: result.fileUrl
+              });
+            } else {
+              reject(new Error(result.error || 'Upload failed'));
+            }
+          })
+          .withFailureHandler(reject)
+          .uploadSingleFile(fileData, file.name, file.type, documentData.category);
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  // Upload แบบ batch
+  const queue = [...selectedFiles];
+  const executing = [];
+  
+  for (const file of queue) {
+    const promise = uploadSingleFile(file)
+      .then(result => {
+        successFiles.push(result);
+        return result;
+      })
+      .catch(error => {
+        failedFiles.push({ name: file.name, error: error.message });
+        console.error(`❌ ${file.name}:`, error);
+        return null;
+      })
+      .finally(() => {
+        executing.splice(executing.indexOf(promise), 1);
+      });
+    
+    executing.push(promise);
+    
+    if (executing.length >= MAX_CONCURRENT) {
+      await Promise.race(executing);
+    }
+  }
+  
+  await Promise.all(executing);
+  
+  // แสดงผลลัพธ์
+  if (successFiles.length > 0) {
+    documentData.file_objects = successFiles;
+    addDocumentToSheet(documentData);
+  } else {
+    showErrorOnFooter('อัปโหลดล้มเหลวทั้งหมด');
+    enableSubmitButton();
+  }
+}
+
+
+function continueWithPartialUpload() {
+  if (!window.__partialUploadData) return;
+  
+  const { documentData, successFiles } = window.__partialUploadData;
+  documentData.file_objects = successFiles;
+  addDocumentToSheet(documentData);
+  
+  delete window.__partialUploadData;
+}
+
+
+// ฟังก์ชันช่วย: อ่านไฟล์เป็น DataURL
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ฟังก์ชันช่วย: หน่วงเวลา
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ===== แทนที่ฟังก์ชัน updateLoadingProgress ทั้งหมด =====
+
+function updateLoadingProgress(completed, total) {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  
+  if (!overlay.classList.contains('active')) {
+    showLoading('กำลังอัปโหลดไฟล์...');
+  }
+
+  let progressWrap = overlay.querySelector('[data-progress-wrap]');
+  
+  if (!progressWrap) {
+    overlay.innerHTML = `
+      <div style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        max-width: 400px;
+        margin: 0 auto;
+        padding: 0 20px;
+      ">
+        <!-- Spinner -->
+        <div class="spinner" style="margin-bottom: 24px;"></div>
+        
+        <!-- Progress Container -->
+        <div style="width: 100%;">
+          <!-- Progress Bar -->
+          <div data-progress-wrap style="
+            width: 100%;
+            height: 16px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            position: relative;
+          ">
+            <div data-progress style="
+              width: 0%;
+              height: 100%;
+              background: linear-gradient(90deg, #4CAF50 0%, #66BB6A 50%, #81C784 100%);
+              border-radius: 8px;
+              transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 0 12px rgba(76,175,80,0.6);
+              position: relative;
+              overflow: hidden;
+            ">
+              <!-- Animated Shine Effect -->
+              <div style="
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+                animation: shine 1.5s infinite;
+              "></div>
+            </div>
+          </div>
+          
+          <!-- Progress Info -->
+          <div style="margin-top: 16px; text-align: center;">
+            <div data-progress-info style="
+              color: white;
+              font-size: 18px;
+              font-weight: 700;
+              text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+              margin-bottom: 4px;
+            "></div>
+            <div data-progress-percent style="
+              color: rgba(255,255,255,0.9);
+              font-size: 24px;
+              font-weight: 700;
+              text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            "></div>
+            <div data-upload-speed style="
+              color: rgba(255,255,255,0.7);
+              font-size: 13px;
+              margin-top: 8px;
+            "></div>
+          </div>
+        </div>
+      </div>
+      
+      <style>
+        @keyframes shine {
+          0% { left: -100%; }
+          100% { left: 100%; }
+        }
+      </style>
+    `;
+    progressWrap = overlay.querySelector('[data-progress-wrap]');
+  }
+  
+  const progressBar = overlay.querySelector('[data-progress]');
+  const progressInfo = overlay.querySelector('[data-progress-info]');
+  const progressPercent = overlay.querySelector('[data-progress-percent]');
+  const uploadSpeed = overlay.querySelector('[data-upload-speed]');
+  
+  const percent = Math.round((completed / total) * 100);
+  
+  // Update progress bar
+  if (progressBar) {
+    progressBar.style.width = percent + '%';
+    
+    if (percent >= 90) {
+      progressBar.style.background = 'linear-gradient(90deg, #66BB6A 0%, #4CAF50 100%)';
+    }
+  }
+  
+  // Update text
+  if (progressInfo) {
+    progressInfo.textContent = `${completed} / ${total} ไฟล์`;
+  }
+  
+  if (progressPercent) {
+    progressPercent.textContent = `${percent}%`;
+  }
+  
+  // คำนวณความเร็ว
+  if (uploadSpeed && window.__uploadStartTime) {
+    const elapsed = (Date.now() - window.__uploadStartTime) / 1000;
+    const speed = (completed / elapsed).toFixed(1);
+    const remaining = Math.ceil((total - completed) / speed);
+    
+    if (completed > 0 && remaining > 0) {
+      uploadSpeed.textContent = `ความเร็ว: ${speed} ไฟล์/วินาที • เหลืออีก ~${remaining} วินาที`;
+    }
+  }
+  
+  // Animation เมื่อเสร็จ 100%
+  if (percent === 100) {
+    if (progressBar) {
+      progressBar.style.background = 'linear-gradient(90deg, #4CAF50 0%, #66BB6A 100%)';
+      progressBar.style.boxShadow = '0 0 20px rgba(76,175,80,0.8)';
+    }
+    if (progressInfo) {
+      progressInfo.innerHTML = '<i class="fas fa-check-circle"></i> อัปโหลดสำเร็จ!';
+    }
+    if (uploadSpeed) {
+      uploadSpeed.textContent = '';
+    }
+  }
+}
+/**
+ * กู้ฟอร์มเพิ่มเอกสารกลับมา (กรณีถูกแทนที่ด้วย Progress)
+ */
+function restoreAddForm() {
+  const modalBody = document.querySelector('#addModal .modal-body');
+  if (!modalBody) return;
+  
+  console.log('🔄 กำลังกู้ฟอร์มกลับมา...');
+  
+  // โหลดฟอร์มจาก HTML เดิม (หรือสร้างใหม่)
+  modalBody.innerHTML = document.getElementById('addModalOriginal')?.innerHTML || `
+    <form id="addDocumentForm" onsubmit="handleAddDocument(event)">
+      <div class="form-group">
+        <label>ชื่อเอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+        <input type="text" id="add_title" name="add_title" required>
+      </div>
+
+      <div class="form-group">
+        <label>หมวดหมู่ <span class="required-mark" style="color:#dc3545;">*</span></label>
+        <select id="add_category" name="add_category" required>
+          <option value="">เลือกหมวดหมู่</option>
+          <option value="งานฝ่ายบริหาร">งานฝ่ายบริหาร</option>
+          <option value="งานวิชาการ">งานวิชาการ</option>
+          <option value="งานบริหารบุคคล">งานบริหารบุคคล</option>
+          <option value="งานบริหารการเงินและสินทรัพย์">งานบริหารการเงินและสินทรัพย์</option>
+          <option value="งานบริหารทั่วไป">งานบริหารทั่วไป</option>
+          <option value="งานกิจกรรมโรงเรียน">งานกิจกรรมโรงเรียน</option>
+          <option value="งานส่งเสริมสนับสนุนอื่นๆ">งานส่งเสริมสนับสนุนอื่นๆ</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>ประเภทเอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+        <select id="add_document_type" name="add_document_type" required>
+          <option value="">เลือกประเภท</option>
+          <option value="หนังสือราชการ">หนังสือราชการ</option>
+          <option value="ประกาศ">ประกาศ</option>
+          <option value="คำสั่ง">คำสั่ง</option>
+          <option value="รูปภาพ">รูปภาพ</option>
+          <option value="ไฟล์เอกสาร">ไฟล์เอกสาร</option>
+          <option value="แผนการสอน">แผนการสอน</option>
+          <option value="รายงาน">รายงาน</option>
+          <option value="เรื่องทั่วไป">เรื่องทั่วไป</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>วันที่เอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+        <input type="date" id="add_document_date" name="add_document_date" required>
+      </div>
+
+      <div class="form-group">
+        <label>ผู้ส่ง <span class="required-mark" style="color:#dc3545;">*</span></label>
+        <select id="add_submitter_name" name="add_submitter_name" required>
+          <option value="">เลือกผู้ส่ง</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>แท็ก</label>
+        <input type="text" id="add_tags" name="add_tags" placeholder="คั่นด้วยเครื่องหมายจุลภาค">
+      </div>
+
+      <div class="form-group">
+        <label>หมายเหตุ</label>
+        <textarea id="add_description" name="add_description" placeholder="รายละเอียดเพิ่มเติม"></textarea>
+      </div>
+
+      <div class="form-group">
+        <div class="view-controls" style="margin-bottom:12px;">
+          <button type="button" id="fileTabBtn" class="upload-tab-btn active" onclick="switchUploadTab('file')">
+            <i class="fas fa-file-upload"></i> อัปโหลดจากเครื่อง
+          </button>
+          <button type="button" id="urlTabBtn" class="upload-tab-btn" onclick="switchUploadTab('url')">
+            <i class="fas fa-link"></i> เพิ่มจาก URL
+          </button>
+        </div>
+
+        <div id="fileUploadSection">
+          <div id="fileUploadArea" class="file-upload-area" onclick="document.getElementById('add_file').click()">
+            <div class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <div class="upload-text">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+            <div class="upload-hint">รองรับหลายไฟล์ สูงสุด ~500MB/ไฟล์</div>
+            <input type="file" id="add_file" multiple style="display:none;">
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button type="button" class="btn" style="flex:0 0 auto;background:#f0f0f0;" onclick="document.getElementById('add_file_more').click()">
+              <i class="fas fa-plus"></i> เพิ่มไฟล์
+            </button>
+            <input type="file" id="add_file_more" multiple style="display:none;">
+            <button type="button" class="btn" style="flex:0 0 auto;background:#dc3545;color:#fff;" onclick="removeAllFiles()">
+              <i class="fas fa-trash"></i> ลบไฟล์ทั้งหมด
+            </button>
+          </div>
+
+          <div id="fileNameDisplay" class="file-name-display">
+            <div class="file-list-container" id="fileListContainer"></div>
+          </div>
+        </div>
+
+        <div id="urlUploadSection" style="display:none;">
+          <textarea id="urlInput" rows="4" class="form-control" placeholder="วาง URL ทีละบรรทัด"></textarea>
+
+          <div id="urlFileDisplay" class="file-name-display" style="margin-top:12px; display:none;">
+            <div class="file-list-container" id="urlListContainer"></div>
+          </div>
+
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <button type="button" class="btn" style="background:#f0f0f0;" onclick="previewUrls()">
+              <i class="fas fa-eye"></i> แสดงตัวอย่างรายการ URL
+            </button>
+            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="removeUrlFiles()">
+              <i class="fas fa-trash"></i> ล้างรายการ URL
+            </button>
+          </div>
+        </div>
+      </div>
+    </form>
+  `;
+  
+  // โหลดรายชื่อผู้ส่งใหม่
+  loadSubmitters();
+  
+  // เริ่ม Drag & Drop ใหม่
+  setTimeout(initDragAndDrop, 100);
+  
+  console.log('✅ กู้ฟอร์มสำเร็จ');
+}
+    
+ // เมื่อเพิ่มเอกสารสำเร็จ
+/**
+ * บันทึกเอกสารลงชีต Google Sheets
+ */
+function addDocumentToSheet(documentData) {
+  console.log('📝 กำลังบันทึกเอกสาร:', documentData.title);
+  console.log('📦 file_objects:', documentData.file_objects);
+  
+  // แสดง Progress บน Modal Footer
+  showProgressOnModal('กำลังบันทึก...', 10, 'กำลังส่งข้อมูล...');
+  
+  // แปลง file_objects เป็น JSON string
+  if (documentData.file_objects && Array.isArray(documentData.file_objects)) {
+    documentData.file_objects_json = JSON.stringify(documentData.file_objects);
+    console.log('📄 file_objects_json:', documentData.file_objects_json);
+    delete documentData.file_objects;
+  }
+  
+  // แสดง Progress เพิ่มเติม
+  setTimeout(() => showProgressOnModal('กำลังบันทึก...', 50, 'กำลังประมวลผล...'), 500);
+  
+  // ส่งข้อมูลไป Google Apps Script
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('✅ ผลลัพธ์:', result);
+      
+      // ⭐⭐⭐ แสดง Server Log (ถ้ามี) ⭐⭐⭐
+      if (result.logs && Array.isArray(result.logs)) {
+        console.log('═══════════════════════════════════');
+        console.log('📡 LOG จาก Apps Script Server:');
+        console.log('═══════════════════════════════════');
+        result.logs.forEach(log => console.log(log));
+        console.log('═══════════════════════════════════');
+      }
+      
+      if (result.success) {
+        // ⭐ บันทึกสำเร็จ
+        showProgressOnModal('บันทึกสำเร็จ!', 100, 'เสร็จสมบูรณ์');
+        
+        // ⭐ แสดง Toast สำเร็จ
+        setTimeout(() => {
+          // ⭐ ปิด Toast เก่าก่อน (ถ้ามี)
+          Swal.close();
+          
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'success',
+            title: '✅ บันทึกสำเร็จ!',
+            html: `เพิ่ม <strong>"${escapeHtml(documentData.title)}"</strong> เรียบร้อยแล้ว`,
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            didOpen: (toast) => {
+              toast.addEventListener('mouseenter', Swal.stopTimer);
+              toast.addEventListener('mouseleave', Swal.resumeTimer);
+            }
+          });
+        }, 500);
+        
+        // ⭐ ปิด Modal + รีเซ็ตฟอร์ม
+        setTimeout(() => {
+          closeModal('addModal');
+          resetAddFormCompletely();
+          
+          // Scroll ไปด้านบน
+          window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+          });
+          
+        }, 1000);
+        
+        // ⭐ โหลดข้อมูลใหม่
+        clearCache();
+        setTimeout(() => {
+          loadDocuments(true);
+          loadStatistics();
+        }, 500);
+        
+      } else {
+        // ❌ บันทึกไม่สำเร็จ
+        console.error('❌ บันทึกไม่สำเร็จ:', result.error);
+        
+        // ⭐ แสดง Stack Trace ถ้ามี
+        if (result.stack) {
+          console.error('Stack Trace:', result.stack);
+        }
+        
+        // แสดงข้อผิดพลาดที่ Footer
+        showErrorOnFooter(result.error || 'ไม่สามารถบันทึกได้');
+        
+        // Enable ปุ่มบันทึกกลับมา
+        enableSubmitButton();
+        
+        // ⭐ แสดง SweetAlert2 แบบเต็มหน้าจอ
+        Swal.fire({
+          icon: 'error',
+          title: 'ไม่สามารถบันทึกได้',
+          html: `
+            <p style="margin-bottom: 16px;">${escapeHtml(result.error || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ')}</p>
+            <div style="background: #f8fafc; padding: 12px; border-radius: 8px; text-align: left; font-size: 13px; color: #64748b;">
+              <strong>💡 แนะนำ:</strong>
+              <ul style="margin: 8px 0 0 20px; line-height: 1.8;">
+                <li>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</li>
+                <li>ลองรีเฟรชหน้าเว็บ</li>
+                <li>ตรวจสอบว่ากรอกข้อมูลครบถ้วน</li>
+              </ul>
+            </div>
+          `,
+          confirmButtonText: '<i class="fas fa-redo"></i> ลองใหม่อีกครั้ง',
+          confirmButtonColor: '#667eea',
+          showCancelButton: true,
+          cancelButtonText: 'ยกเลิก',
+          cancelButtonColor: '#94a3b8'
+        });
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('❌ Error:', error);
+      
+      // แสดงข้อผิดพลาดที่ Footer
+      showErrorOnFooter('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์');
+      
+      // Enable ปุ่มบันทึกกลับมา
+      enableSubmitButton();
+      
+      // ⭐ แสดง SweetAlert2 พร้อมรายละเอียด
+      Swal.fire({
+        icon: 'error',
+        title: '⚠️ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์',
+        html: `
+          <p style="margin-bottom: 16px;">เกิดข้อผิดพลาดในการเชื่อมต่อ</p>
+          <div style="background: #fef2f2; padding: 12px; border-radius: 8px; text-align: left; font-size: 13px; color: #991b1b;">
+            <strong>📌 รายละเอียด:</strong><br>
+            <code style="font-size: 12px;">${escapeHtml(error.message || String(error))}</code>
+          </div>
+          <div style="background: #f8fafc; padding: 12px; border-radius: 8px; text-align: left; font-size: 13px; color: #64748b; margin-top: 12px;">
+            <strong>💡 วิธีแก้ไข:</strong>
+            <ul style="margin: 8px 0 0 20px; line-height: 1.8;">
+              <li>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</li>
+              <li>รีเฟรชหน้าเว็บ (F5)</li>
+              <li>ลองใหม่อีกครั้งในภายหลัง</li>
+              <li>ถ้ายังไม่ได้ ติดต่อผู้ดูแลระบบ</li>
+            </ul>
+          </div>
+        `,
+        confirmButtonText: '<i class="fas fa-sync-alt"></i> รีเฟรชหน้า',
+        confirmButtonColor: '#667eea',
+        showCancelButton: true,
+        cancelButtonText: 'ปิด',
+        cancelButtonColor: '#94a3b8'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          location.reload();
+        }
+      });
+    })
+    .addDocument(documentData);
+}
+
+/**
+ * แสดงข้อผิดพลาดบน Modal พร้อมปุ่มปิด
+ */
+function showErrorOnModal(title = 'เกิดข้อผิดพลาด', message = '') {
+  const modalBody = document.querySelector('#addModal .modal-body');
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalBody) return;
+  
+  // ซ่อน Footer
+  if (modalFooter) modalFooter.style.display = 'none';
+  
+  modalBody.innerHTML = `
+    <div style="text-align: center; padding: 60px 20px;">
+      <div style="font-size: 80px; margin-bottom: 24px;">❌</div>
+      
+      <h3 style="
+        color: #ef4444;
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 16px;
+      ">${title}</h3>
+      
+      <p style="
+        color: #64748b;
+        font-size: 16px;
+        line-height: 1.6;
+        margin-bottom: 32px;
+      ">${message}</p>
+      
+      <button onclick="closeModal('addModal'); resetAddForm();" class="btn-cancel" style="
+        padding: 14px 32px;
+        font-size: 16px;
+        min-width: 120px;
+      ">
+        <i class="fas fa-times"></i> ปิด
+      </button>
+    </div>
+  `;
+}
+
+ // ⭐ เพิ่มฟังก์ชันนี้ก่อน openModal
+function resetAddForm() {
+  console.log('🔄 รีเซ็ตฟอร์ม');
+  
+  const form = document.getElementById('addDocumentForm');
+  if (form) {
+    form.reset();
+    console.log('✅ รีเซ็ตฟอร์มสำเร็จ');
+  }
+  
+  // รีเซ็ตไฟล์
+  removeAllFiles();
+  removeUrlFiles();
+  
+  // กลับไปที่ tab อัปโหลดจากเครื่อง
+  currentUploadMethod = 'file';
+  switchUploadTab('file');
+  
+  // แสดง Footer กลับ
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  if (modalFooter) modalFooter.style.display = 'flex';
+  
+  // Enable ปุ่มบันทึก
+  const submitBtn = document.querySelector('#addModal button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.style.cursor = 'pointer';
+    submitBtn.innerHTML = '<i class="fas fa-save"></i> บันทึกเอกสาร';
+  }
+  
+  console.log('✅ รีเซ็ตฟอร์มเสร็จสิ้น');
+}
+/**
+ * ⭐ รีเซ็ตฟอร์มอย่างสมบูรณ์ (สำหรับหลังอัปโหลดเสร็จ)
+ */
+function resetAddFormCompletely() {
+  console.log('🔄 รีเซ็ตฟอร์มสมบูรณ์...');
+  
+  // 1. รีเซ็ตฟอร์ม
+  const form = document.getElementById('addDocumentForm');
+  if (form) {
+    form.reset();
+  }
+  
+  // 2. ล้างไฟล์ที่เลือก
+  selectedFiles = [];
+  const fileInput = document.getElementById('add_file');
+  const fileInputMore = document.getElementById('add_file_more');
+  if (fileInput) fileInput.value = '';
+  if (fileInputMore) fileInputMore.value = '';
+  
+  // 3. ล้าง URL
+  const urlInput = document.getElementById('urlInput');
+  if (urlInput) urlInput.value = '';
+  removeUrlFiles();
+  
+  // 4. ซ่อน File Display
+  const fileNameDisplay = document.getElementById('fileNameDisplay');
+  const fileListContainer = document.getElementById('fileListContainer');
+  if (fileNameDisplay) fileNameDisplay.style.display = 'none';
+  if (fileListContainer) fileListContainer.innerHTML = '';
+  
+  // 5. ลบคลาส has-file
+  const uploadArea = document.getElementById('fileUploadArea');
+  if (uploadArea) uploadArea.classList.remove('has-file');
+  
+  // 6. กลับไปที่ Tab อัปโหลดจากเครื่อง
+  currentUploadMethod = 'file';
+  switchUploadTab('file');
+  
+  // 7. ⭐ คืนค่า Modal Footer กลับมา
+  restoreModalFooter();
+  
+  console.log('✅ รีเซ็ตฟอร์มเรียบร้อย');
+}
+
+/**
+ * ⭐ คืนค่า Modal Footer กลับมา
+ */
+function restoreModalFooter() {
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalFooter) return;
+  
+  modalFooter.innerHTML = `
+    <button type="button" class="btn-cancel" onclick="closeModal('addModal')">ยกเลิก</button>
+    <button type="submit" form="addDocumentForm" class="btn-submit" id="submitBtn">
+      <i class="fas fa-save"></i> บันทึกเอกสาร
+    </button>
+  `;
+  
+  modalFooter.style.display = 'flex';
+  
+  console.log('✅ คืนค่า Footer เรียบร้อย');
+}
+
+/**
+ * ⭐ Enable ปุ่มบันทึกกลับมา (กรณี Error)
+ */
+function enableSubmitButton() {
+  const submitBtn = document.getElementById('submitBtn') || 
+                    document.querySelector('#addModal button[type="submit"]');
+  const cancelBtn = document.querySelector('#addModal .btn-cancel');
+  
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.style.cursor = 'pointer';
+    submitBtn.innerHTML = '<i class="fas fa-save"></i> บันทึกเอกสาร';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    cancelBtn.style.opacity = '1';
+  }
+  
+  console.log('✅ Enable ปุ่มบันทึกแล้ว');
+}
+
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  
+  // ✅ บันทึกตำแหน่ง scroll ปัจจุบัน
+  window.__savedScrollY = window.scrollY;
+  
+  // ✅ Lock body scroll แบบปลอดภัย
+  document.body.style.top = `-${window.__savedScrollY}px`;
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  document.body.style.overflow = 'hidden';
+  document.body.classList.add('modal-open');
+  
+  modal.classList.add('active');
+  
+  // ✅ Scroll modal ไปด้านบน
+  requestAnimationFrame(() => {
+    modal.scrollTop = 0;
+    const modalBody = modal.querySelector('.modal-body');
+    if (modalBody) modalBody.scrollTop = 0;
+  });
+
+  // ✅ เปิด Drag & Drop เมื่อเปิด Modal เพิ่มเอกสาร
+  if (modalId === 'addModal') {
+    setTimeout(initDragAndDrop, 100);
+  }
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  
+  modal.classList.remove('active');
+  
+  // ✅ Unlock body scroll อย่างปลอดภัย
+  document.body.classList.remove('modal-open');
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  document.body.style.overflow = '';
+  
+  // ✅ คืนตำแหน่ง scroll
+  if (window.__savedScrollY) {
+    window.scrollTo(0, window.__savedScrollY);
+    window.__savedScrollY = null;
+  }
+}
+
+
+
+// ⭐ เพิ่มโค้ดเสริมต่อท้าย (ไม่ซ้ำ)
+document.addEventListener('DOMContentLoaded', function() {
+  const modals = document.querySelectorAll('.modal');
+  modals.forEach(modal => {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeModal(modal.id);
+    });
+  });
+});
+
+// เมื่อผู้ใช้กด Back/Forward
+window.addEventListener('popstate', (e) => {
+  const st = e.state;
+  if (!st) return;
+  currentPage = st.page || 1;
+  currentFilters = st.filters || currentFilters;
+  // แสดงจากแคชของหน้าที่เคยเปิดทันที ถ้ามี
+  loadDocuments(false, { suppressOverlay: true });
+});
+// ============================================
+// เพิ่มโค้ดนี้ต่อท้าย (ไม่ซ้ำกับฟังก์ชันด้านบน)
+// ============================================
+
+// ⭐ ปิด Modal เมื่อคลิกพื้นหลัง
+document.addEventListener('DOMContentLoaded', function() {
+  const modals = document.querySelectorAll('.modal');
+  
+  modals.forEach(modal => {
+    modal.addEventListener('click', function(e) {
+      // ปิดเฉพาะเมื่อคลิกที่พื้นหลัง (ไม่ใช่ modal-content)
+      if (e.target === modal) {
+        const modalId = modal.id;
+        closeModal(modalId);
+      }
+    });
+  });
+});
+
+// ⭐ จัดการปุ่ม Back บน Android
+window.addEventListener('popstate', function(e) {
+  const activeModal = document.querySelector('.modal.active');
+  if (activeModal) {
+    e.preventDefault();
+    closeModal(activeModal.id);
+    history.pushState(null, null, window.location.href);
+  }
+});
+
+// ===== FIX: Touch Scroll สำหรับ Modal (v2.0) =====
+document.addEventListener('touchmove', function(e) {
+  const modal = e.target.closest('.modal.active');
+  if (!modal) return; // ไม่อยู่ใน modal = ไม่ทำอะไร
+  
+  // ✅ หา scrollable elements ทั้งหมด
+  const scrollableSelectors = [
+    '.modal-body',
+    '.modal-content', 
+    '#fileLinksContainer',
+    '#viewModalBody',
+    '.file-list-container',
+    '[data-scrollable]'
+  ];
+  
+  const isInsideScrollable = scrollableSelectors.some(selector => 
+    e.target.closest(selector)
+  );
+  
+  // ✅ อนุญาต scroll ถ้าอยู่ใน scrollable area
+  if (isInsideScrollable) {
+    return; // ไม่ block
+  }
+  
+  // Block เฉพาะ background ของ modal
+  if (e.target === modal) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+
+// ⭐ Auto-adjust modal height สำหรับ iOS keyboard
+if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+  let initialHeight = window.innerHeight;
+  
+  window.addEventListener('resize', function() {
+    const activeModal = document.querySelector('.modal.active');
+    if (activeModal) {
+      const modalContent = activeModal.querySelector('.modal-content');
+      if (modalContent) {
+        const currentHeight = window.innerHeight;
+        
+        // Keyboard is showing
+        if (currentHeight < initialHeight * 0.8) {
+          modalContent.style.height = currentHeight + 'px';
+        } else {
+          // Keyboard is hidden
+          modalContent.style.height = '100vh';
+          initialHeight = currentHeight;
+        }
+      }
+    }
+  });
+}
+
+// ⭐ Focus trap ใน Modal (สำหรับ accessibility)
+function trapFocus(modal) {
+  const focusableElements = modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  
+  if (focusableElements.length === 0) return;
+  
+  const firstElement = focusableElements[0];
+  const lastElement = focusableElements[focusableElements.length - 1];
+  
+  modal.addEventListener('keydown', function(e) {
+    if (e.key === 'Tab') {
+      if (e.shiftKey) {
+        // Shift + Tab
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    }
+    
+    // ESC to close
+    if (e.key === 'Escape') {
+      closeModal(modal.id);
+    }
+  });
+}
+    
+/**
+ * แสดง Progress ที่ Modal Footer (ตรงปุ่มบันทึก)
+ */
+function showProgressOnModal(message = 'กำลังประมวลผล...', percent = 0, details = '') {
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalFooter) return;
+  
+  // ⭐ แสดง Progress ที่ Footer เลย ไม่ซ่อน Body
+  modalFooter.innerHTML = `
+    <div style="
+      width: 100%;
+      text-align: center;
+      padding: 24px 20px;
+      background: #f8fafc;
+      border-radius: 12px;
+    ">
+      <!-- Message -->
+      <div style="
+        color: #1e293b;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 12px;
+      ">
+        <i class="fas fa-spinner fa-spin" style="color: #667eea; margin-right: 8px;"></i>
+        ${message}
+      </div>
+      
+      <!-- Details -->
+      ${details ? `
+        <div style="
+          color: #64748b;
+          font-size: 14px;
+          margin-bottom: 16px;
+        ">${details}</div>
+      ` : ''}
+      
+      <!-- Progress Bar -->
+      <div style="
+        width: 100%;
+        height: 12px;
+        background: #e2e8f0;
+        border-radius: 6px;
+        overflow: hidden;
+        margin-bottom: 12px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+      ">
+        <div style="
+          width: ${percent}%;
+          height: 100%;
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+          transition: width 0.5s ease;
+          box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+          position: relative;
+          overflow: hidden;
+        ">
+          <!-- Shine Animation -->
+          <div style="
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            animation: shine 1.5s infinite;
+          "></div>
+        </div>
+      </div>
+      
+      <!-- Percentage -->
+      <div style="
+        font-size: 24px;
+        font-weight: 900;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      ">${Math.round(percent)}%</div>
+    </div>
+    
+    <style>
+      @keyframes shine {
+        0% { left: -100%; }
+        100% { left: 100%; }
+      }
+    </style>
+  `;
+}
+/**
+ * แสดงข้อผิดพลาดที่ Modal Footer
+ */
+function showErrorOnFooter(message = 'เกิดข้อผิดพลาด') {
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalFooter) return;
+  
+  modalFooter.innerHTML = `
+    <div style="
+      width: 100%;
+      text-align: center;
+      padding: 24px 20px;
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      border-radius: 12px;
+      color: white;
+    ">
+      <!-- Error Icon -->
+      <div style="margin-bottom: 12px;">
+        <i class="fas fa-exclamation-circle" style="font-size: 48px;"></i>
+      </div>
+      
+      <!-- Message -->
+      <div style="
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        line-height: 1.5;
+      ">${message}</div>
+      
+      <!-- Close Button -->
+      <button onclick="closeModal('addModal'); resetAddForm();" style="
+        padding: 12px 32px;
+        background: white;
+        color: #ef4444;
+        border: none;
+        border-radius: 10px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+      " onmouseover="this.style.transform='translateY(-2px)'" 
+         onmouseout="this.style.transform='translateY(0)'">
+        <i class="fas fa-times-circle"></i> ปิด
+      </button>
+    </div>
+  `;
+}
+
+/**
+ * แสดงความสำเร็จที่ Modal Footer
+ */
+function showSuccessOnFooter(message = 'บันทึกสำเร็จ!') {
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalFooter) return;
+  
+  modalFooter.innerHTML = `
+    <div style="
+      width: 100%;
+      text-align: center;
+      padding: 24px 20px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      border-radius: 12px;
+      color: white;
+    ">
+      <!-- Success Icon -->
+      <div style="margin-bottom: 12px;">
+        <i class="fas fa-check-circle" style="
+          font-size: 48px;
+          animation: scaleIn 0.5s ease;
+        "></i>
+      </div>
+      
+      <!-- Message -->
+      <div style="
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 16px;
+      ">${message}</div>
+      
+      <!-- Close Button -->
+      <button onclick="closeModal('addModal'); resetAddForm();" style="
+        padding: 12px 32px;
+        background: white;
+        color: #10b981;
+        border: none;
+        border-radius: 10px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+      " onmouseover="this.style.transform='translateY(-2px)'" 
+         onmouseout="this.style.transform='translateY(0)'">
+        <i class="fas fa-times-circle"></i> ปิดหน้าต่าง
+      </button>
+    </div>
+    
+    <style>
+      @keyframes scaleIn {
+        0% { transform: scale(0); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+      }
+    </style>
+  `;
+}
+
+    // ==== Single-instance Loading Overlay ====
+let __overlayActive = false;
+
+
+function showSuccessOnModal(message = 'บันทึกสำเร็จ!', details = '') {
+  const modalBody = document.querySelector('#addModal .modal-body');
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  
+  if (!modalBody) return;
+  
+  // ซ่อน Footer
+  if (modalFooter) modalFooter.style.display = 'none';
+  
+  modalBody.innerHTML = `
+    <div style="
+      text-align: center;
+      padding: 60px 20px;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    ">
+      <!-- Success Icon -->
+      <div style="
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 32px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        border-radius: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        box-shadow: 0 10px 40px rgba(16, 185, 129, 0.4);
+      ">
+        <i class="fas fa-check" style="font-size: 60px; color: white;"></i>
+      </div>
+      
+      <!-- Message -->
+      <div style="
+        color: #1e293b;
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 12px;
+      ">${message}</div>
+      
+      <!-- Details -->
+      <div style="
+        color: #64748b;
+        font-size: 16px;
+        line-height: 1.6;
+      ">${details}</div>
+      
+      <!-- Auto Close Info -->
+      <div style="
+        margin-top: 32px;
+        color: #94a3b8;
+        font-size: 14px;
+      ">
+        <i class="fas fa-info-circle"></i> หน้าต่างนี้จะปิดอัตโนมัติ...
+      </div>
+    </div>
+  `;
+}
+
+function showLoading(message = 'กำลังโหลด...') {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  
+  overlay.classList.add('active');
+  overlay.innerHTML = `
+    <div style="
+      background: white;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+      text-align: center;
+      animation: scaleIn 0.3s ease-out;
+      max-width: 400px;
+      width: 90%;
+    ">
+      <div class="spinner-modern" style="margin: 0 auto 20px;"></div>
+      <div data-loading-msg style="
+        color: #1e293b;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      ">${escapeHtml(message)}</div>
+      <div style="
+        color: #64748b;
+        font-size: 14px;
+      ">กรุณารอสักครู่...</div>
+    </div>
+  `;
+  __overlayActive = true;
+}
+
+function hideLoading() {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('active');
+  // เคลียร์ให้สะอาด ป้องกัน DOM ค้าง
+  overlay.innerHTML = `<div class="spinner"></div>`;
+  __overlayActive = false;
+}
+
+
+    
+    function showError(message) {
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: message
+      });
+    }
+             
+    // ⭐ Global variable for upload method
+
+
+/* ---------- 5) ปุ่ม Mobile Topbar/Bottom Nav (แก้ไขแล้ว) ---------- */
+(function wireMobileNav(){
+  // 1. ปุ่ม Toggle ตัวกรอง (ด้านบนซ้าย)
+  const toggleBtn = document.getElementById('btnToggleFilters');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', ()=> {
+      document.body.classList.toggle('is-filters-collapsed');
+    });
+  }
+
+  // 2. ปุ่มเปิด Add Modal (Topbar + Bottom nav)
+  const openAddTop = document.getElementById('btnOpenAdd');
+  const openAddBottom = document.getElementById('navAdd');
+  [openAddTop, openAddBottom].forEach(btn=>{
+    if (!btn) return;
+    btn.addEventListener('click', ()=> {
+        if(typeof openModal === 'function') openModal('addModal');
+    });
+  });
+
+  // 3. ⭐ ปุ่ม "ค้นหา" ด้านล่าง (แก้ไขจุดนี้)
+  const navSearch = document.getElementById('navSearch');
+  if (navSearch) {
+    navSearch.addEventListener('click', (e) => {
+      e.preventDefault(); 
+      
+      // A. สั่งเปิดแผงควบคุมทันที (ลบคลาสที่ซ่อนออก)
+      document.body.classList.remove('is-filters-collapsed');
+      
+      // B. ค้นหาช่อง Input
+      const s = document.getElementById('searchInput');
+      if (s) {
+        // C. ใช้ setTimeout เพื่อรอให้หน้าจอแสดงผลเสร็จก่อน (300ms) แล้วค่อยโฟกัส
+        setTimeout(() => {
+            s.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            s.focus(); // สั่งให้แป้นพิมพ์เด้งขึ้นมา
+        }, 300);
+      }
+    });
+  }
+
+  // 4. ปุ่มตั้งค่า (เปิด Settings Modal)
+  const navSettings = document.getElementById('navSettings');
+  if (navSettings) {
+    navSettings.addEventListener('click', ()=>{
+      if (typeof openSettingsModal === 'function') {
+        openSettingsModal();
+      }
+    });
+  }
+
+  // 5. เปิดโหมด list-compact อัตโนมัติเมื่อกว้าง < 768px
+  function applyCompactIfMobile() {
+    if (window.innerWidth < 768) document.body.classList.add('list-compact');
+    else document.body.classList.remove('list-compact');
+  }
+  applyCompactIfMobile();
+  window.addEventListener('resize', debounce(applyCompactIfMobile, 200));
+})();
+
+
+
+// ⭐ Preview URLs
+document.addEventListener('DOMContentLoaded', function() {
+  const urlInput = document.getElementById('urlInput');
+  if (urlInput) {
+    urlInput.addEventListener('input', function() {
+      previewUrls();
+    });
+  }
+});
+
+
+
+function getFileNameFromUrl(url) {
+  try {
+    const urlPath = url.split('?')[0];
+    const pathParts = urlPath.split('/');
+    const fileName = pathParts[pathParts.length - 1];
+    return decodeURIComponent(fileName) || 'ไฟล์จาก URL';
+  } catch (e) {
+    return 'ไฟล์จาก URL';
+  }
+}
+
+function getIconFromUrl(url) {
+  const extension = url.split('.').pop().toLowerCase().split('?')[0];
+  const iconMap = {
+    'pdf': '📕',
+    'doc': '📘', 'docx': '📘',
+    'xls': '📗', 'xlsx': '📗',
+    'ppt': '📙', 'pptx': '📙',
+    'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️',
+    'mp4': '🎬', 'mov': '🎬', 'avi': '🎬',
+    'zip': '📦', 'rar': '📦'
+  };
+  return iconMap[extension] || '🔗';
+}
+
+// ⭐ จัดการปุ่ม Back บน Android
+window.addEventListener('popstate', function(e) {
+  const activeModal = document.querySelector('.modal.active');
+  if (activeModal) {
+    e.preventDefault();
+    closeModal(activeModal.id);
+    history.pushState(null, null, window.location.href);
+  }
+});
+// ⭐ เพิ่ม * สีแดงอัตโนมัติให้ฟิลด์ required
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    document.querySelectorAll('.form-group input[required], .form-group select[required], .form-group textarea[required]').forEach(function(field) {
+      const label = field.previousElementSibling;
+      if (label && label.tagName === 'LABEL' && !label.querySelector('.required-mark')) {
+        label.insertAdjacentHTML('beforeend', ' <span class="required-mark" style="color:#dc3545;font-weight:700;">*</span>');
+      }
+    });
+  }, 100);
+});
+
+/**
+ * ⭐ Auto Refresh เมื่อกลับมาจาก Tab อื่น
+ * - เมื่อผู้ใช้กลับมาที่หน้านี้หลังจากส่งฟอร์ม จะโหลดข้อมูลใหม่อัตโนมัติ
+ */
+let lastVisibilityChange = Date.now();
+let formSubmitTime = null;
+let isAutoRefreshing = false;
+
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    const now = Date.now();
+    const timeAway = now - lastVisibilityChange;
+
+    if ((timeAway > 5000 || formSubmitTime) && !isAutoRefreshing) {
+      isAutoRefreshing = true;
+
+      // ไม่เรียก Swal.showLoading() เพื่อหลีกเลี่ยงสปินเนอร์ซ้อน
+      Swal.fire({
+        title: 'กำลังโหลดข้อมูลใหม่...',
+        html: 'ตรวจสอบเอกสารที่เพิ่งส่งจากฟอร์ม',
+        icon: 'info',
+        timer: 1500,
+        showConfirmButton: false,
+        timerProgressBar: true
+      });
+
+      // ให้ overlay ของเราแสดงแทน
+      showLoading('กำลังโหลดข้อมูลใหม่...');
+
+      // กัน loadDocuments() เรียก showLoading อีกรอบ
+      suppressOverlay = true;
+      // โหลดข้อมูลจริง
+      setTimeout(() => {
+        // เรียกเหมือนเดิม
+        loadDocuments();
+        loadStatistics();
+        // คืนค่าแฟล็ก/overlay
+        suppressOverlay = false;
+        hideLoading();
+        formSubmitTime = null;
+        isAutoRefreshing = false;
+      }, 300);
+    }
+  }
+  lastVisibilityChange = Date.now();
+});
+
+
+
+  </script>
+<script>
+  // รับ item: { id, title, type, icon, viewUrl, editId, ... }
+  function renderDocItemCompact(item) {
+    // เลือกไอคอนตามชนิดไฟล์ (ถ้าไม่ได้ส่งมา)
+    const iconClass = item.icon || (
+      item.type === 'folder' ? 'fa-solid fa-folder'
+      : 'fa-regular fa-file-lines'
+    );
+
+    // ปุ่มกด – ใส่ data-id เพื่อเชื่อม handler
+    return `
+      <li class="doc-item" data-id="${item.id}">
+        <div class="doc-icon"><i class="${iconClass}"></i></div>
+        <div class="doc-main">
+          <div class="doc-title" title="${escapeHtml(item.title || '')}">
+            ${escapeHtml(item.title || '')}
+          </div>
+          <div class="doc-meta" aria-hidden="true"></div>
+        </div>
+        <div class="doc-actions">
+          <button class="doc-btn view" aria-label="ดูเอกสาร" data-action="view" data-id="${item.id}">
+            <i class="fa-regular fa-eye"></i><span class="hide-sm">ดู</span>
+          </button>
+          <button class="doc-btn edit" aria-label="แก้ไขเอกสาร" data-action="edit" data-id="${item.id}">
+            <i class="fa-regular fa-pen-to-square"></i><span class="hide-sm">แก้ไข</span>
+          </button>
+          <button class="doc-btn delete" aria-label="ลบเอกสาร" data-action="delete" data-id="${item.id}">
+            <i class="fa-regular fa-trash-can"></i><span class="hide-sm">ลบ</span>
+          </button>
+        </div>
+      </li>`;
+  }
+
+
+  // ใส่ใช้งานกับข้อมูลของครู
+  // docs = [{id,title,type,viewUrl,...}, ...]
+  function renderDocumentsCompact(docs){
+    const list = document.getElementById('documentsList');
+    if (!list) return;
+    list.classList.add('doc-list--compact');
+    list.innerHTML = docs.map(renderDocItemCompact).join('');
+  }
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.doc-actions .doc-btn');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+
+  if (action === 'view') {
+    const doc = findDocById(id);
+
+    // ✅ ใช้ฟังก์ชันใหม่ getOpenUrlFromItem()
+    const openUrl = getOpenUrlFromItem(doc);
+    if (openUrl) {
+      window.open(openUrl, '_blank');
+    } else if (typeof viewDocument === 'function') {
+      viewDocument(id);
+    }
+  }
+  else if (action === 'edit') {
+    if (typeof openEditModal === 'function') openEditModal(id);
+    else if (typeof editDocument === 'function') editDocument(id);
+  }
+  else if (action === 'delete') {
+    if (typeof confirmDelete === 'function') confirmDelete(id);
+    else if (confirm('ลบเอกสารนี้?')) { /* call API ลบ */ }
+  }
+});
+
+</script>
+<script>
+
+  // 2.2 (ออปชัน) ถ้าโครงสร้างรายการเดิมไม่มีคลาสตามที่ CSS จับไว้
+  // ใส่ data-role ให้ไอเท็ม/ปุ่มหลักอย่างน้อย เพื่อช่วย CSS จับได้แม่นขึ้น
+  // => รันหนึ่งครั้งหลังจากที่เรนเดอร์รายการแล้ว
+  function normalizeDocListSelectors(){
+    // ให้โหนดรายการหลักมีคลาส 'doc-item'
+    document.querySelectorAll(
+      '.documents .card, .list .item, li[data-id], .doc-row, .doc-card'
+    ).forEach(el => el.classList.add('doc-item'));
+
+    // ให้หัวเรื่องมีคลาส 'doc-title'
+    document.querySelectorAll(
+      '.documents .title, .card .title, .item .title, .file-title, .document-title, a[data-title]'
+    ).forEach(el => el.classList.add('doc-title'));
+
+    // ให้กลุ่มปุ่มมีคลาส 'actions'
+    document.querySelectorAll(
+      '.card .buttons, .item .buttons, .doc-actions, .action-group'
+    ).forEach(el => el.classList.add('actions'));
+
+    // ใส่คลาสปุ่มมาตรฐาน (ดู/แก้ไข/ลบ)
+    document.querySelectorAll('.actions [data-action="view"]').forEach(b=>b.classList.add('btn','btn-view'));
+    document.querySelectorAll('.actions [data-action="edit"]').forEach(b=>b.classList.add('btn','btn-edit'));
+    document.querySelectorAll('.actions [data-action="delete"]').forEach(b=>b.classList.add('btn','btn-delete'));
+  }
+
+  // เรียกหลังโหลดเอกสาร (ถ้าครูโหลดผ่าน google.script.run ให้เรียกต่อท้าย success handler)
+  document.addEventListener('DOMContentLoaded', normalizeDocListSelectors);
+ 
+
+// ⭐ เชื่อมปุ่ม Mobile (ถ้ายังไม่มี)
+document.addEventListener('DOMContentLoaded', function() {
+  const navGForm = document.getElementById('navGForm');
+  if (navGForm && !navGForm.onclick) {
+    navGForm.addEventListener('click', openGoogleForm);
+  }
+});
+
+
+/**
+ * เปิด Media Viewer
+ */
+function openMediaViewer(fileUrl, fileName) {
+  const modal = document.getElementById('mediaViewerModal');
+  const title = document.getElementById('mediaViewerTitle');
+  const content = document.getElementById('mediaViewerContent');
+  
+  if (!modal || !title || !content) return;
+  
+  // แสดง Modal
+  modal.classList.add('active');
+  title.textContent = fileName || 'ไฟล์';
+  
+  // แสดง Loading
+  content.innerHTML = `
+    <div class="media-loading">
+      <div class="media-loading-spinner"></div>
+      กำลังโหลดไฟล์...
+    </div>
+  `;
+  
+  // ตรวจสอบประเภทไฟล์
+  const extension = getFileExtension(fileName);
+  const mediaType = getMediaType(extension);
+  
+  // แสดงเนื้อหาตามประเภท
+  setTimeout(() => {
+    renderMediaContent(content, fileUrl, fileName, mediaType, extension);
+  }, 300);
+  
+  // ป้องกัน body scroll
+  document.body.style.overflow = 'hidden';
+}
+
+/**
+ * ปิด Media Viewer
+ */
+function closeMediaViewer() {
+  const modal = document.getElementById('mediaViewerModal');
+  if (modal) {
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+}
+
+/**
+ * ดึงนามสกุลไฟล์
+ */
+function getFileExtension(fileName) {
+  if (!fileName) return '';
+  return fileName.split('.').pop().toLowerCase();
+}
+
+/**
+ * ตรวจสอบประเภทสื่อ
+ */
+function getMediaType(extension) {
+  const mediaTypes = {
+    // Video
+    video: ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'wmv', 'm4v'],
+    // Audio
+    audio: ['mp3', 'wav', 'ogg', 'aac', 'm4a', 'flac'],
+    // Image
+    image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'],
+    // PDF
+    pdf: ['pdf'],
+    // Document
+    document: ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv']
+  };
+  
+  for (const [type, extensions] of Object.entries(mediaTypes)) {
+    if (extensions.includes(extension)) {
+      return type;
+    }
+  }
+  
+  return 'unknown';
+}
+
+/**
+ * แสดงเนื้อหาตามประเภท
+ */
+function renderMediaContent(container, fileUrl, fileName, mediaType, extension) {
+  let html = '';
+  
+  switch (mediaType) {
+    case 'video':
+      html = `
+        <video class="media-viewer-video" controls autoplay>
+          <source src="${fileUrl}" type="video/${extension}">
+          เบราว์เซอร์ของคุณไม่รองรับการเล่นวิดีโอ
+        </video>
+      `;
+      break;
+      
+    case 'audio':
+      html = `
+        <div class="media-viewer-audio">
+          <audio controls autoplay style="width: 100%;">
+            <source src="${fileUrl}" type="audio/${extension}">
+            เบราว์เซอร์ของคุณไม่รองรับการเล่นเสียง
+          </audio>
+        </div>
+      `;
+      break;
+      
+    case 'image':
+      html = `
+        <img class="media-viewer-image" src="${fileUrl}" alt="${escapeHtml(fileName)}">
+      `;
+      break;
+      
+    case 'pdf':
+      html = `
+        <iframe class="media-viewer-pdf" src="${fileUrl}"></iframe>
+      `;
+      break;
+      
+    case 'document':
+    case 'unknown':
+    default:
+      const icon = getDocumentIconLarge(extension);
+      html = `
+        <div class="media-viewer-document">
+          <div class="document-icon-large">${icon}</div>
+          <div class="document-name">${escapeHtml(fileName)}</div>
+          <div class="document-actions">
+            <a href="${fileUrl}" download class="btn-download">
+              <i class="fas fa-download"></i>
+              ดาวน์โหลด
+            </a>
+            <a href="${fileUrl}" target="_blank" class="btn-open-new">
+              <i class="fas fa-external-link-alt"></i>
+              เปิดในแท็บใหม่
+            </a>
+          </div>
+        </div>
+      `;
+      break;
+  }
+  
+  container.innerHTML = html;
+}
+
+/**
+ * ดึงไอคอนตามนามสกุลไฟล์
+ */
+function getDocumentIconLarge(extension) {
+  const icons = {
+    'pdf': '📕',
+    'doc': '📘', 'docx': '📘',
+    'xls': '📗', 'xlsx': '📗',
+    'ppt': '📙', 'pptx': '📙',
+    'txt': '📄',
+    'zip': '📦', 'rar': '📦',
+    'mp4': '🎬', 'mov': '🎬', 'avi': '🎬',
+    'mp3': '🎵', 'wav': '🎵',
+    'jpg': '🖼️', 'png': '🖼️'
+  };
+  
+  return icons[extension] || '📁';
+}
+
+/**
+ * ปิด Modal เมื่อคลิกพื้นหลัง
+ */
+document.addEventListener('DOMContentLoaded', function() {
+  const modal = document.getElementById('mediaViewerModal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        closeMediaViewer();
+      }
+    });
+  }
+  
+  // ปิดด้วยปุ่ม ESC
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('mediaViewerModal');
+      if (modal && modal.classList.contains('active')) {
+        closeMediaViewer();
+      }
+    }
+  });
+});
+
+// ตรวจจับ in-app browser (LINE/FB/IG) แบบกว้าง ๆ
+function isInAppBrowser() {
+  const ua = navigator.userAgent || '';
+  const isLine = /Line\//i.test(ua);
+  const isFB = /FBAN|FBAV|FB_IAB/i.test(ua);
+  const isIG = /Instagram/i.test(ua);
+  const isTwitter = /Twitter/i.test(ua);
+  
+  // เพิ่มการตรวจสอบ iOS WebView
+  const isIOSWebView = /(iPhone|iPod|iPad).*AppleWebKit(?!.*Safari)/i.test(ua);
+  
+  // เพิ่มการตรวจสอบ Android WebView
+  const isAndroidWebView = /wv|Version\/[\d\.]+.*Chrome\/[\d\.]+ Mobile/i.test(ua);
+  
+  return isLine || isFB || isIG || isTwitter || isIOSWebView || isAndroidWebView;
+}
+
+
+/**
+ * เปิด URL อย่างปลอดภัย - ใช้ <a> element
+ */
+function openUrlSafely(url) {
+  if (!url) return;
+  
+  // ตรวจสอบ URL
+  if (!/^https?:\/\//i.test(url)) {
+    Swal.fire({
+      icon: 'error',
+      title: 'URL ไม่ถูกต้อง',
+      text: 'กรุณาตรวจสอบลิงก์'
+    });
+    return;
+  }
+  
+  // ⭐ ใช้ <a> element ตั้งแต่แรก (ไม่โดน popup blocker)
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  
+  // เพิ่มลง DOM ชั่วคราว
+  document.body.appendChild(link);
+  
+  // คลิก
+  link.click();
+  
+  // ลบออก
+  document.body.removeChild(link);
+  
+  console.log('✅ เปิดไฟล์: ' + url);
+}
+
+
+
+/* ① ปิด ripple (และโค้ดที่เรียกชื่อ createRipple) เมื่ออยู่ใน userCodeAppPanel / OAuth dialog */
+(function hardDisableRippleInDialogs(){
+  try {
+    var isDialog = (window.self !== window.top) ||
+                   (location.search && /userCodeAppPanel|createOAuthDialog/i.test(location.search)) ||
+                   (document.referrer && /userCodeAppPanel|createOAuthDialog/i.test(document.referrer));
+    if (isDialog) {
+      // ถ้าที่อื่นในระบบเรียกชื่อฟังก์ชัน createRipple ให้กลายเป็น no-op
+      window.createRipple = function(){};
+      // ไม่ทำอะไรต่อใน dialog นี้
+      return;
+    }
+  } catch(e) {
+    // ถ้าโดน security error จาก cross-frame ก็ถือเป็น dialog แล้วปิดไว้
+    window.createRipple = function(){};
+    return;
+  }
+
+  /* ② (เฉพาะหน้าแอปหลัก) Ripple ที่ปลอดภัยด้วย event delegation */
+  if (window.__rktSafeRippleBound) return;
+  window.__rktSafeRippleBound = true;
+
+  document.addEventListener('click', function(e){
+    // จำกัดเฉพาะปุ่มที่เราใช้จริงในหน้า (เพิ่ม/ลด selector ได้)
+    var btn = e.target && e.target.closest('.btn, .btn-gform, .m-icon-btn, .m-nav-btn');
+    if (!btn || btn.hasAttribute('data-no-ripple')) return;
+    rktCreateRipple(e, btn);
+  });
+
+  function rktCreateRipple(e, el){
+    if (!el || el.nodeType !== 1 || typeof el.getBoundingClientRect !== 'function') return;
+
+    var style = getComputedStyle(el);
+    if (style.position === 'static') el.style.position = 'relative';
+    el.style.overflow = 'hidden';
+
+    var old = el.querySelector('.ripple'); if (old) old.remove();
+
+    var rect = el.getBoundingClientRect();
+    var size = Math.max(rect.width, rect.height);
+    var x = ((e && 'clientX' in e) ? e.clientX : rect.left + rect.width/2) - rect.left - size/2;
+    var y = ((e && 'clientY' in e) ? e.clientY : rect.top  + rect.height/2) - rect.top  - size/2;
+
+    var ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    Object.assign(ripple.style, {
+      position:'absolute', left:x+'px', top:y+'px',
+      width:size+'px', height:size+'px', borderRadius:'50%',
+      background:'rgba(255,255,255,.35)', transform:'scale(0)',
+      pointerEvents:'none', animation:'ripple-expand .6s ease-out forwards'
+    });
+    el.appendChild(ripple);
+    ripple.addEventListener('animationend', function(){ ripple.remove(); });
+  }
+
+  // inject keyframes หนึ่งครั้ง
+  var ID = 'rkt-ripple-keyframes';
+  if (!document.getElementById(ID)) {
+    var s = document.createElement('style');
+    s.id = ID;
+    s.textContent = '@keyframes ripple-expand{to{transform:scale(4);opacity:0}} .ripple{will-change:transform,opacity}';
+    document.head.appendChild(s);
+  }
+})();
+/* passive listeners ตัวอย่าง */
+window.addEventListener('scroll', ()=>{}, {passive:true});
+window.addEventListener('touchstart', ()=>{}, {passive:true});
+
+/* debounce ค้นหา */
+const onSearch = debounce(() => { /* TODO: filter + re-render (batch) */ }, 200);
+document.getElementById('searchInput')?.addEventListener('input', onSearch);
+
+/* render เป็นชุด ๆ (ใช้เมื่อต้องเติม DOM จำนวนมาก) */
+function renderInBatches(items, renderOne, batchSize=30){
+  let i=0; const step=()=>{ const end=Math.min(i+batchSize,items.length);
+    for(;i<end;i++) renderOne(items[i]);
+    if(i<items.length) requestAnimationFrame(step);
+  }; requestAnimationFrame(step);
+}
+</script>
+
+<div id="mediaViewerModal" class="media-viewer-modal">
+  <div class="media-viewer-container">
+    <!-- Header -->
+    <div class="media-viewer-header">
+      <div class="media-viewer-title" id="mediaViewerTitle">กำลังโหลด...</div>
+      <button class="media-viewer-close" onclick="closeMediaViewer()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <!-- Content -->
+    <div class="media-viewer-content" id="mediaViewerContent">
+      <div class="media-loading">
+        <div class="media-loading-spinner"></div>
+        กำลังโหลดไฟล์...
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * โหลดโลโก้โรงเรียนจาก Google Drive
+ */
+function loadSchoolLogo() {
+  const logoImg = document.querySelector('.header-icon img');
+  const logoPlaceholder = document.getElementById('logoPlaceholder');
+  
+  if (!logoImg) {
+    console.error('❌ ไม่พบ element img ของโลโก้');
+    return;
+  }
+  
+  // ตรวจสอบว่าอยู่ใน Google Apps Script หรือไม่
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    console.log('⚠️ ไม่ได้อยู่ใน Google Apps Script - แสดง Emoji แทน');
+    showFallbackLogo();
+    return;
+  }
+  
+  console.log('🔄 กำลังโหลดโลโก้...');
+  
+  // Timeout fallback - ถ้า 5 วินาทียังไม่เสร็จให้แสดง emoji
+  const timeout = setTimeout(function() {
+    console.log('⏱️ Timeout - แสดง Emoji แทน');
+    showFallbackLogo();
+  }, 5000);
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      clearTimeout(timeout);
+      console.log('📡 ได้รับผลลัพธ์:', result);
+      
+      if (result && result.success) {
+        // โหลดสำเร็จ - แสดงรูป
+        logoImg.src = `data:${result.mimeType};base64,${result.data}`;
+        
+        // ⭐ ลบ inline style ทั้งหมด
+        logoImg.removeAttribute('style');
+        logoImg.style.display = 'block';
+        
+        logoImg.onload = function() {
+          console.log('✅ แสดงโลโก้สำเร็จ:', result.fileName);
+        };
+        
+        if (logoPlaceholder) {
+          logoPlaceholder.style.display = 'none';
+        }
+        
+      } else {
+        // โหลดไม่สำเร็จ - แสดง Emoji
+        console.error('❌ ไม่สามารถโหลดโลโก้:', result ? result.error : 'Unknown error');
+        showFallbackLogo();
+      }
+    })
+    .withFailureHandler(function(error) {
+      clearTimeout(timeout);
+      console.error('❌ Error:', error.message || error);
+      showFallbackLogo();
+    })
+    .serveSchoolLogo();
+}
+
+/**
+ * แสดง Emoji แทนเมื่อโหลดโลโก้ไม่สำเร็จ
+ */
+function showFallbackLogo() {
+  const logoImg = document.querySelector('.header-icon img');
+  const logoPlaceholder = document.getElementById('logoPlaceholder');
+  
+  if (logoImg) {
+    logoImg.style.display = 'none';
+  }
+  
+  if (logoPlaceholder) {
+    logoPlaceholder.innerHTML = '🏫';
+    logoPlaceholder.style.fontSize = '64px';
+    logoPlaceholder.style.marginBottom = '16px';
+    logoPlaceholder.style.display = 'block';
+  }
+  
+  console.log('⚠️ แสดง Emoji แทนโลโก้');
+}
+
+// ⭐ เรียกใช้เมื่อหน้าเว็บโหลดเสร็จ
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('🚀 เริ่มโหลดโลโก้โรงเรียน...');
+  setTimeout(loadSchoolLogo, 500);
+});
+
+</script>
+
+<script>
+// ===== Settings Functions =====
+
+// เปิด/ปิด Settings Modal
+function openSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) {
+    modal.classList.add('active');
+    // ไม่ lock body scroll เพื่อป้องกันปัญหา
+    loadSettings();
+  }
+}
+
+function closeSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  
+  // Force reset body styles - แก้ปัญหาเลื่อนไม่ได้
+  document.body.style.cssText = '';
+  document.body.classList.remove('modal-open');
+  document.documentElement.style.overflow = '';
+  document.documentElement.style.position = '';
+  
+  // Force enable scroll
+  setTimeout(function() {
+    document.body.style.overflow = 'auto';
+    document.body.style.position = 'static';
+    window.scrollTo(window.scrollX, window.scrollY);
+  }, 100);
+}
+
+// โหลดการตั้งค่าจาก localStorage
+function loadSettings() {
+  const settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  
+  // มุมมอง
+  const view = settings.view || 'list';
+  document.querySelectorAll('#optGrid, #optList').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(view === 'grid' ? 'optGrid' : 'optList')?.classList.add('active');
+  
+  // จำนวนต่อหน้า
+  const perPage = settings.perPage || 20;
+  document.querySelectorAll('[data-per-page]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.perPage) === perPage);
+  });
+  
+  // เรียงลำดับ
+  const sort = settings.sortOrder || 'newest';
+  document.querySelectorAll('[data-sort]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === sort);
+  });
+  
+  // ขนาดตัวอักษร
+  const font = settings.fontSize || 'medium';
+  document.querySelectorAll('[data-font]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.font === font);
+  });
+}
+
+// บันทึกการตั้งค่า
+function saveSettings(key, value) {
+  const settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  settings[key] = value;
+  localStorage.setItem('rktSettings', JSON.stringify(settings));
+}
+
+// ตั้งค่ามุมมอง
+function setView(view) {
+  closeSettingsModal();
+  
+  if (typeof switchView === 'function') {
+    switchView(view);
+  }
+  
+  showToast('เปลี่ยนมุมมองเป็น ' + (view === 'grid' ? 'การ์ด' : 'รายการ'), 'success');
+}
+
+// ตั้งค่าจำนวนต่อหน้า
+function setPerPage(num) {
+  document.querySelectorAll('[data-per-page]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.perPage) === num);
+  });
+  
+  saveSettings('perPage', num);
+  
+  // อัปเดตตัวแปร global (ถ้ามี)
+  if (typeof itemsPerPage !== 'undefined') {
+    window.itemsPerPage = num;
+  }
+  
+  // ปิด modal
+  closeSettingsModal();
+  
+  // รีโหลดข้อมูล
+  if (typeof renderDocuments === 'function') {
+    renderDocuments();
+  }
+  
+  showToast('แสดง ' + num + ' รายการต่อหน้า', 'success');
+}
+
+// ตั้งค่าเรียงลำดับ
+function setSortOrder(order) {
+  document.querySelectorAll('[data-sort]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === order);
+  });
+  
+  saveSettings('sortOrder', order);
+  
+  // ปิด modal
+  closeSettingsModal();
+  
+  // เรียงข้อมูลใหม่
+  if (typeof sortDocuments === 'function') {
+    sortDocuments(order);
+  } else if (typeof allDocuments !== 'undefined' && Array.isArray(allDocuments)) {
+    // เรียงข้อมูลเอง
+    switch(order) {
+      case 'newest':
+        allDocuments.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0));
+        break;
+      case 'oldest':
+        allDocuments.sort((a, b) => new Date(a.timestamp || a.date || 0) - new Date(b.timestamp || b.date || 0));
+        break;
+      case 'name-asc':
+        allDocuments.sort((a, b) => (a.title || a.name || '').localeCompare(b.title || b.name || '', 'th'));
+        break;
+      case 'name-desc':
+        allDocuments.sort((a, b) => (b.title || b.name || '').localeCompare(a.title || a.name || '', 'th'));
+        break;
+    }
+    
+    if (typeof renderDocuments === 'function') {
+      renderDocuments();
+    }
+  }
+  
+  const orderNames = {
+    'newest': 'ใหม่สุดก่อน',
+    'oldest': 'เก่าสุดก่อน',
+    'name-asc': 'ชื่อ ก-ฮ',
+    'name-desc': 'ชื่อ ฮ-ก'
+  };
+  showToast('เรียงลำดับ: ' + orderNames[order], 'success');
+}
+
+// ตั้งค่าขนาดตัวอักษร
+function setFontSize(size) {
+  document.querySelectorAll('[data-font]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.font === size);
+  });
+  
+  saveSettings('fontSize', size);
+  
+  // ลบ class เดิม
+  document.body.classList.remove('font-small', 'font-medium', 'font-large');
+  
+  // เพิ่ม class ใหม่
+  if (size !== 'medium') {
+    document.body.classList.add('font-' + size);
+  }
+  
+  // ปิด modal หลังเปลี่ยนขนาด
+  closeSettingsModal();
+  
+  const sizeNames = { 'small': 'เล็ก', 'medium': 'กลาง', 'large': 'ใหญ่' };
+  showToast('ขนาดตัวอักษร: ' + sizeNames[size], 'success');
+}
+
+// รีเฟรชข้อมูล
+function refreshData() {
+  closeSettingsModal();
+  
+  if (typeof loadDocuments === 'function') {
+    showLoading('กำลังโหลดข้อมูลใหม่...');
+    loadDocuments();
+    showToast('รีเฟรชข้อมูลสำเร็จ', 'success');
+  } else {
+    // Fallback: reload หน้า
+    location.reload();
+  }
+}
+
+// ล้างแคชและตั้งค่าทั้งหมด
+function clearAllSettings() {
+  Swal.fire({
+    title: 'ล้างแคช?',
+    text: 'การตั้งค่าทั้งหมดจะถูกรีเซ็ต',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#ef4444',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: 'ล้างเลย',
+    cancelButtonText: 'ยกเลิก'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      localStorage.removeItem('rktSettings');
+      localStorage.removeItem('rktCache');
+      
+      // รีเซ็ต font size
+      document.body.classList.remove('font-small', 'font-large');
+      
+      closeSettingsModal();
+      showToast('ล้างแคชสำเร็จ', 'success');
+      
+      // รีโหลดหน้า
+      setTimeout(() => location.reload(), 500);
+    }
+  });
+}
+
+// แสดง Toast
+function showToast(message, type = 'success') {
+  const Toast = Swal.mixin({
+    toast: true,
+    position: 'top-end',
+    showConfirmButton: false,
+    timer: 2000,
+    timerProgressBar: true,
+    didOpen: (toast) => {
+      toast.addEventListener('mouseenter', Swal.stopTimer);
+      toast.addEventListener('mouseleave', Swal.resumeTimer);
+    }
+  });
+  
+  Toast.fire({
+    icon: type,
+    title: message
+  });
+}
+
+// ปิด modal เมื่อคลิกพื้นหลัง
+document.addEventListener('click', function(e) {
+  const modal = document.getElementById('settingsModal');
+  if (e.target === modal) {
+    closeSettingsModal();
+  }
+});
+
+// โหลดการตั้งค่าเมื่อเริ่มต้น
+document.addEventListener('DOMContentLoaded', function() {
+  const settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  
+  // ใช้ขนาดตัวอักษรที่บันทึกไว้
+  if (settings.fontSize && settings.fontSize !== 'medium') {
+    document.body.classList.add('font-' + settings.fontSize);
+  }
+  
+  // ใช้มุมมองที่บันทึกไว้
+  if (settings.view && typeof switchView === 'function') {
+    switchView(settings.view);
+  }
+});
+
+// ===== Mobile: Toggle Filter Controls =====
+document.addEventListener('DOMContentLoaded', function() {
+  const filterBtn = document.querySelector('.btn-filter');
+  const controls = document.querySelector('.controls');
+  
+  if (filterBtn && controls) {
+    filterBtn.addEventListener('click', function(e) {
+      // ป้องกันการทำงานซ้ำกับ toggleAdvancedFilters
+      if (window.innerWidth > 768) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      controls.classList.toggle('show-filters');
+      
+      // เปลี่ยนข้อความปุ่ม
+      if (controls.classList.contains('show-filters')) {
+        this.innerHTML = '<i class="fas fa-times"></i> ซ่อนตัวกรอง';
+        this.classList.add('active');
+      } else {
+        this.innerHTML = '<i class="fas fa-filter"></i> ตัวกรองเพิ่มเติม';
+        this.classList.remove('active');
+      }
+    });
+  }
+});
+
+</script>

@@ -1,0 +1,1854 @@
+<!-- ===== Content.html - FIXED v9.0 ===== -->
+<!-- ✅ รองรับการอัปโหลดโฟลเดอร์ -->
+<!-- ✅ รวมฟีเจอร์ทั้งหมด + แก้ปัญหา Modal เลื่อนไม่ได้ -->
+<!-- ✅ Settings Modal + Admin Modal ทำงานร่วมกันได้ -->
+
+<!-- Mobile Topbar -->
+<header class="m-topbar">
+  <button id="btnToggleFilters" class="m-icon-btn" aria-label="ตัวกรอง">
+    <i class="fa-solid fa-sliders"></i>
+  </button>
+  <div class="m-title">
+    <span>ศูนย์ข้อมูล รร.บ้านโคกยางหนองถนน</span>
+  </div>
+  <a href="https://drive.google.com/drive/folders/1SkiPR0RFqBAyQohk3hEAY2TuxUxRDuNC" 
+     target="_blank" 
+     rel="noopener noreferrer"
+     class="m-icon-btn" 
+     aria-label="เปิดโฟลเดอร์"
+     style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+    <i class="fa-solid fa-folder-open"></i>
+  </a>
+  <button id="btnOpenAdd" class="m-icon-btn" aria-label="เพิ่มเอกสาร">
+    <i class="fa-regular fa-square-plus"></i>
+  </button>
+</header>
+
+<!-- Bottom Navigation (เฉพาะมือถือ) -->
+<nav class="m-bottom-nav" role="navigation" aria-label="เมนูด้านล่าง">
+  <button class="m-nav-btn" id="navSearch"><i class="fa-solid fa-magnifying-glass"></i><span>ค้นหา</span></button>
+  <button class="m-nav-btn" id="navGForm" onclick="openGoogleForm()"><i class="fab fa-google"></i><span>G Form</span></button>
+  <button class="m-nav-btn m-nav-main" id="navAdd"><i class="fa-regular fa-square-plus"></i><span>เพิ่ม</span></button>
+  <button class="m-nav-btn" id="navSettings" onclick="openSettingsModal()"><i class="fa-solid fa-gear"></i><span>ตั้งค่า</span></button>
+</nav>
+
+<!-- ===== Settings Modal - FIXED v8.0 ===== -->
+<div id="settingsModal" class="settings-modal">
+  <div class="settings-content">
+    <div class="settings-header">
+      <h3><i class="fas fa-gear"></i> ตั้งค่า</h3>
+      <button class="settings-close" onclick="closeSettingsModal()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <div class="settings-body">
+      <!-- มุมมอง -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-th-large"></i> มุมมองการแสดงผล
+        </div>
+        <div class="settings-options">
+          <button class="settings-option" id="optGrid" onclick="setView('grid')">
+            <i class="fas fa-th"></i> การ์ด
+          </button>
+          <button class="settings-option active" id="optList" onclick="setView('list')">
+            <i class="fas fa-list"></i> รายการ
+          </button>
+        </div>
+      </div>
+      
+      <!-- จำนวนต่อหน้า -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-layer-group"></i> จำนวนแสดงต่อหน้า
+        </div>
+        <div class="settings-options">
+          <button class="settings-option" data-per-page="10" onclick="setPerPage(10)">10</button>
+          <button class="settings-option active" data-per-page="20" onclick="setPerPage(20)">20</button>
+          <button class="settings-option" data-per-page="50" onclick="setPerPage(50)">50</button>
+          <button class="settings-option" data-per-page="100" onclick="setPerPage(100)">100</button>
+        </div>
+      </div>
+      
+      <!-- เรียงลำดับ -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-sort"></i> เรียงลำดับ
+        </div>
+        <div class="settings-options vertical">
+          <button class="settings-option wide active" data-sort="newest" onclick="setSortOrder('newest')">
+            <i class="fas fa-arrow-down"></i> ใหม่สุดก่อน
+          </button>
+          <button class="settings-option wide" data-sort="oldest" onclick="setSortOrder('oldest')">
+            <i class="fas fa-arrow-up"></i> เก่าสุดก่อน
+          </button>
+          <button class="settings-option wide" data-sort="name-asc" onclick="setSortOrder('name-asc')">
+            <i class="fas fa-sort-alpha-down"></i> ชื่อ ก-ฮ
+          </button>
+          <button class="settings-option wide" data-sort="name-desc" onclick="setSortOrder('name-desc')">
+            <i class="fas fa-sort-alpha-up"></i> ชื่อ ฮ-ก
+          </button>
+        </div>
+      </div>
+      
+      <!-- ขนาดตัวอักษร -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-text-height"></i> ขนาดตัวอักษร
+        </div>
+        <div class="settings-options">
+          <button class="settings-option" data-font="small" onclick="setFontSize('small')">
+            <span style="font-size:12px">A</span> เล็ก
+          </button>
+          <button class="settings-option active" data-font="medium" onclick="setFontSize('medium')">
+            <span style="font-size:16px">A</span> กลาง
+          </button>
+          <button class="settings-option" data-font="large" onclick="setFontSize('large')">
+            <span style="font-size:20px">A</span> ใหญ่
+          </button>
+        </div>
+      </div>
+      
+      <!-- การกระทำ -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-bolt"></i> การกระทำ
+        </div>
+        <div class="settings-actions">
+          <button class="settings-action-btn refresh" onclick="refreshData()">
+            <i class="fas fa-sync-alt"></i> รีเฟรชข้อมูล
+          </button>
+          <button class="settings-action-btn clear" onclick="clearAllSettings()">
+            <i class="fas fa-trash-alt"></i> ล้างแคช
+          </button>
+        </div>
+      </div>
+      
+      <!-- ปุ่มตั้งค่าระบบ (Admin) -->
+      <div class="settings-section">
+        <div class="settings-label">
+          <i class="fas fa-user-shield"></i> ผู้ดูแลระบบ
+        </div>
+        <div class="settings-actions">
+          <button class="settings-action-btn admin-btn" onclick="goToAdminModal()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <i class="fas fa-cog"></i> ตั้งค่าระบบ (Admin)
+          </button>
+        </div>
+      </div>
+      
+      <!-- เกี่ยวกับ -->
+      <div class="settings-section about">
+        <div class="settings-about">
+          <div class="about-logo">🏫</div>
+          <div class="about-info">
+            <strong>ระบบ Data Center</strong>
+            <span>โรงเรียนบ้านโคกยางหนองถนน</span>
+            <span class="version">Version 16.0</span>
+            <span class="credit">© 2568 @pthk</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Settings Modal CSS ===== -->
+<style>
+/* ===== Settings Modal - FIXED ===== */
+.settings-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  z-index: 5000;
+  justify-content: center;
+  align-items: flex-end;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.settings-modal.active {
+  display: flex;
+}
+
+.settings-content {
+  background: white;
+  width: 100%;
+  max-width: 500px;
+  max-height: 85vh;
+  border-radius: 20px 20px 0 0;
+  overflow: hidden;
+  animation: slideUp 0.3s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.settings-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.settings-close {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.settings-close:active {
+  transform: scale(0.95);
+  background: rgba(255,255,255,0.3);
+}
+
+.settings-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.settings-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-label i {
+  color: #667eea;
+  width: 18px;
+  text-align: center;
+}
+
+.settings-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-options.vertical {
+  flex-direction: column;
+}
+
+.settings-option {
+  flex: 1;
+  min-width: 60px;
+  padding: 10px 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.settings-option:active {
+  transform: scale(0.97);
+}
+
+.settings-option.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+}
+
+.settings-option.wide {
+  justify-content: flex-start;
+  padding: 12px 16px;
+}
+
+.settings-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-action-btn {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.2s;
+}
+
+.settings-action-btn:active {
+  transform: scale(0.98);
+}
+
+.settings-action-btn.refresh {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.settings-action-btn.clear {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.settings-about {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px;
+}
+
+.about-logo {
+  font-size: 40px;
+}
+
+.about-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.about-info strong {
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.about-info span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.about-info .version {
+  color: #667eea;
+  font-weight: 600;
+}
+
+.about-info .credit {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Font Size Classes */
+body.font-small {
+  font-size: 13px !important;
+}
+
+body.font-small .card-title,
+body.font-small .list-title {
+  font-size: 13px !important;
+}
+
+body.font-large {
+  font-size: 17px !important;
+}
+
+body.font-large .card-title,
+body.font-large .list-title {
+  font-size: 17px !important;
+}
+
+/* Desktop - แสดง modal ตรงกลาง */
+@media (min-width: 769px) {
+  .settings-modal {
+    align-items: center;
+  }
+  
+  .settings-content {
+    border-radius: 16px;
+    max-height: 80vh;
+  }
+}
+
+/* ===== Folder Upload Styles ===== */
+.upload-method-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.upload-method-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.upload-method-btn:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.upload-method-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+}
+
+.upload-method-btn i {
+  font-size: 16px;
+}
+
+.folder-upload-area {
+  border: 2px dashed #10b981;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+.folder-upload-area:hover {
+  border-color: #059669;
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+}
+
+.folder-upload-area .upload-icon {
+  color: #10b981;
+}
+
+.file-path {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-path i {
+  color: #f59e0b;
+}
+
+.folder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #fef3c7;
+  color: #d97706;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.upload-summary {
+  margin-top: 12px;
+  padding: 12px;
+  background: #e3f2fd;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  color: #1565c0;
+}
+
+.upload-summary.has-folders {
+  background: linear-gradient(135deg, #ecfdf5 0%, #fef3c7 100%);
+  color: #047857;
+}
+
+/* Browser Support Warning */
+.browser-warning {
+  padding: 10px 14px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  color: #92400e;
+  font-size: 12px;
+  margin-top: 8px;
+  display: none;
+}
+
+.browser-warning.show {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.browser-warning i {
+  color: #f59e0b;
+}
+</style>
+
+<!-- ===== Settings Modal JavaScript - FIXED v8.0 ===== -->
+<script>
+// ===== Settings Modal Functions - FIXED =====
+
+var settingsSavedScrollY = 0;
+
+function openSettingsModal() {
+  console.log('🔧 openSettingsModal v8.0');
+  
+  var modal = document.getElementById('settingsModal');
+  if (!modal) {
+    console.error('❌ ไม่พบ #settingsModal');
+    return;
+  }
+  
+  settingsSavedScrollY = window.scrollY || window.pageYOffset || 0;
+  modal.classList.add('active');
+  loadSettings();
+  
+  console.log('✅ เปิด Settings Modal สำเร็จ');
+}
+
+function closeSettingsModal() {
+  console.log('🔒 closeSettingsModal v8.0');
+  
+  var modal = document.getElementById('settingsModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  
+  document.body.style.cssText = '';
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.width = '';
+  document.body.classList.remove('modal-open');
+  document.documentElement.style.overflow = '';
+  document.documentElement.classList.remove('admin-modal-open');
+  document.body.classList.remove('admin-modal-open');
+  
+  if (settingsSavedScrollY > 0) {
+    window.scrollTo(0, settingsSavedScrollY);
+  }
+  
+  setTimeout(function() {
+    document.body.style.overflow = 'auto';
+    window.scrollTo(window.scrollX, window.scrollY);
+  }, 50);
+  
+  console.log('✅ ปิด Settings Modal สำเร็จ');
+}
+
+function goToAdminModal() {
+  console.log('🔄 goToAdminModal - ปิด Settings ก่อน...');
+  
+  var settingsModal = document.getElementById('settingsModal');
+  if (settingsModal) {
+    settingsModal.classList.remove('active');
+  }
+  
+  document.body.style.cssText = '';
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.classList.remove('modal-open');
+  document.documentElement.style.overflow = '';
+  
+  setTimeout(function() {
+    console.log('🔓 กำลังเปิด Admin Modal...');
+    
+    if (typeof openAdminModal === 'function') {
+      openAdminModal();
+    } else {
+      console.error('❌ ไม่พบฟังก์ชัน openAdminModal');
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'error',
+          title: 'ไม่พบหน้าตั้งค่าระบบ',
+          text: 'กรุณารีเฟรชหน้าเว็บแล้วลองใหม่'
+        });
+      }
+    }
+  }, 200);
+}
+
+function loadSettings() {
+  var settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  
+  var view = settings.view || 'list';
+  document.querySelectorAll('#optGrid, #optList').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  var viewBtn = document.getElementById(view === 'grid' ? 'optGrid' : 'optList');
+  if (viewBtn) viewBtn.classList.add('active');
+  
+  var perPage = settings.perPage || 20;
+  document.querySelectorAll('[data-per-page]').forEach(function(btn) {
+    btn.classList.toggle('active', parseInt(btn.dataset.perPage) === perPage);
+  });
+  
+  var sort = settings.sortOrder || 'newest';
+  document.querySelectorAll('[data-sort]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.sort === sort);
+  });
+  
+  var font = settings.fontSize || 'medium';
+  document.querySelectorAll('[data-font]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.font === font);
+  });
+}
+
+function saveSettings(key, value) {
+  var settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  settings[key] = value;
+  localStorage.setItem('rktSettings', JSON.stringify(settings));
+}
+
+function setView(view) {
+  document.querySelectorAll('#optGrid, #optList').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  var viewBtn = document.getElementById(view === 'grid' ? 'optGrid' : 'optList');
+  if (viewBtn) viewBtn.classList.add('active');
+  
+  saveSettings('view', view);
+  closeSettingsModal();
+  
+  if (typeof switchView === 'function') {
+    switchView(view);
+  }
+  
+  showToast('เปลี่ยนมุมมองเป็น ' + (view === 'grid' ? 'การ์ด' : 'รายการ'), 'success');
+}
+
+function setPerPage(num) {
+  document.querySelectorAll('[data-per-page]').forEach(function(btn) {
+    btn.classList.toggle('active', parseInt(btn.dataset.perPage) === num);
+  });
+  
+  saveSettings('perPage', num);
+  closeSettingsModal();
+  
+  if (typeof pageSize !== 'undefined') {
+    window.pageSize = num;
+  }
+  
+  if (typeof loadDocuments === 'function') {
+    loadDocuments(true);
+  }
+  
+  showToast('แสดง ' + num + ' รายการต่อหน้า', 'success');
+}
+
+function setSortOrder(order) {
+  document.querySelectorAll('[data-sort]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.sort === order);
+  });
+  
+  saveSettings('sortOrder', order);
+  closeSettingsModal();
+  
+  if (typeof currentSortOrder !== 'undefined') {
+    window.currentSortOrder = (order === 'oldest') ? 'asc' : 'desc';
+  }
+  
+  if (typeof loadDocuments === 'function') {
+    loadDocuments(true);
+  }
+  
+  var orderNames = {
+    'newest': 'ใหม่สุดก่อน',
+    'oldest': 'เก่าสุดก่อน',
+    'name-asc': 'ชื่อ ก-ฮ',
+    'name-desc': 'ชื่อ ฮ-ก'
+  };
+  showToast('เรียงลำดับ: ' + orderNames[order], 'success');
+}
+
+function setFontSize(size) {
+  document.querySelectorAll('[data-font]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.font === size);
+  });
+  
+  saveSettings('fontSize', size);
+  
+  document.body.classList.remove('font-small', 'font-medium', 'font-large');
+  
+  if (size !== 'medium') {
+    document.body.classList.add('font-' + size);
+  }
+  
+  closeSettingsModal();
+  
+  var sizeNames = { 'small': 'เล็ก', 'medium': 'กลาง', 'large': 'ใหญ่' };
+  showToast('ขนาดตัวอักษร: ' + sizeNames[size], 'success');
+}
+
+function refreshData() {
+  closeSettingsModal();
+  
+  if (typeof clearCache === 'function') {
+    clearCache();
+  }
+  
+  if (typeof loadDocuments === 'function') {
+    if (typeof showLoading === 'function') {
+      showLoading('กำลังโหลดข้อมูลใหม่...');
+    }
+    loadDocuments(true);
+  }
+  
+  if (typeof loadStatistics === 'function') {
+    loadStatistics();
+  }
+  
+  showToast('รีเฟรชข้อมูลสำเร็จ', 'success');
+}
+
+function clearAllSettings() {
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: 'ล้างแคช?',
+      text: 'การตั้งค่าทั้งหมดจะถูกรีเซ็ต',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'ล้างเลย',
+      cancelButtonText: 'ยกเลิก'
+    }).then(function(result) {
+      if (result.isConfirmed) {
+        localStorage.removeItem('rktSettings');
+        localStorage.removeItem('rktCache');
+        localStorage.removeItem('rktAdminConfig');
+        
+        if (typeof pageCache !== 'undefined') {
+          pageCache.clear();
+        }
+        
+        document.body.classList.remove('font-small', 'font-large');
+        
+        closeSettingsModal();
+        showToast('ล้างแคชสำเร็จ', 'success');
+        
+        setTimeout(function() {
+          location.reload();
+        }, 500);
+      }
+    });
+  } else {
+    if (confirm('ล้างแคชทั้งหมด?')) {
+      localStorage.clear();
+      location.reload();
+    }
+  }
+}
+
+function showToast(message, type) {
+  type = type || 'success';
+  
+  if (typeof Swal !== 'undefined') {
+    var Toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+      didOpen: function(toast) {
+        toast.addEventListener('mouseenter', Swal.stopTimer);
+        toast.addEventListener('mouseleave', Swal.resumeTimer);
+      }
+    });
+    
+    Toast.fire({
+      icon: type,
+      title: message
+    });
+  } else {
+    console.log(message);
+  }
+}
+
+document.addEventListener('click', function(e) {
+  var modal = document.getElementById('settingsModal');
+  if (e.target === modal) {
+    closeSettingsModal();
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var modal = document.getElementById('settingsModal');
+    if (modal && modal.classList.contains('active')) {
+      closeSettingsModal();
+    }
+  }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+  var settings = JSON.parse(localStorage.getItem('rktSettings') || '{}');
+  
+  if (settings.fontSize && settings.fontSize !== 'medium') {
+    document.body.classList.add('font-' + settings.fontSize);
+  }
+  
+  if (settings.view && typeof switchView === 'function') {
+    setTimeout(function() {
+      switchView(settings.view);
+    }, 100);
+  }
+});
+</script>
+
+<!-- ===== Main Content ===== -->
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-icon">
+      <img id="schoolLogo" 
+           src="" 
+           alt="โลโก้โรงเรียนบ้านโคกยางหนองถนน" 
+           style="display: none;">
+      <div id="logoPlaceholder" style="font-size: 64px;">🏫</div>
+    </div>
+    <h1>ระบบศูนย์กลางข้อมูล โรงเรียนบ้านโคกยางหนองถนน</h1>
+    <p>© 2568 @pthk — Designed & Developed for RKT School V16</p>
+  </div>
+</div>
+    
+<!-- Statistics -->
+<div class="stats" id="statsContainer">
+  <div class="stat-card">
+    <div class="icon">📊</div>
+    <div class="stat-content">
+      <div class="value" id="totalDocs">0</div>
+      <div class="label">เอกสารทั้งหมด</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="icon">📅</div>
+    <div class="stat-content">
+      <div class="value" id="todayDocs">0</div>
+      <div class="label">เอกสารวันนี้</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="icon">📁</div>
+    <div class="stat-content">
+      <div class="value" id="categoriesCount">0</div>
+      <div class="label">หมวดหมู่</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="icon">👥</div>
+    <div class="stat-content">
+      <div class="value" id="submittersCount">0</div>
+      <div class="label">ผู้ส่ง</div>
+    </div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <div class="controls-row">
+    <div class="search-box" style="position: relative;">
+      <input type="text" id="searchInput" placeholder="ค้นหาเอกสาร ชื่อ, ผู้ส่ง, หมายเหตุ...">
+      <i class="fas fa-search" style="right: 14px;"></i>
+      <button id="clearSearchBtn" onclick="clearSearch()" style="
+        position: absolute;
+        right: 40px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #999;
+        cursor: pointer;
+        font-size: 16px;
+        padding: 8px;
+        display: none;
+        transition: all 0.2s;
+      ">
+        <i class="fas fa-times-circle"></i>
+      </button>
+    </div>
+    
+    <select id="categoryFilter" class="filter-select">
+      <option value="">📁 ทุกหมวดหมู่</option>
+    </select>
+    
+    <select id="typeFilter" class="filter-select">
+      <option value="">📄 ทุกประเภท</option>
+    </select>
+    
+    <!-- Advanced Filter Button -->
+    <button class="btn-filter" id="btnAdvancedFilter" onclick="toggleAdvancedFilters()">
+      <i class="fas fa-filter"></i>
+      <span>ตัวกรองเพิ่มเติม</span>
+      <span class="filter-count" id="filterCount" style="display:none;">0</span>
+    </button>
+    
+    <div class="view-controls">
+      <button class="view-btn" id="gridViewBtn" onclick="switchView('grid')">
+        <i class="fas fa-th"></i> การ์ด
+      </button>
+      <button class="view-btn active" id="listViewBtn" onclick="switchView('list')">
+        <i class="fas fa-list"></i> รายการ
+      </button>
+    </div>
+    
+    <a href="https://drive.google.com/drive/folders/1SkiPR0RFqBAyQohk3hEAY2TuxUxRDuNC" 
+       target="_blank" 
+       rel="noopener noreferrer"
+       class="btn btn-gform"
+       style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+      <i class="fa-solid fa-folder-open"></i>
+      <span>เปิดโฟลเดอร์</span>
+    </a>
+    
+    <button class="btn-gform" onclick="openGoogleForm()">
+      <i class="fab fa-google"></i>
+      <span>เพิ่มผ่าน G Form</span>
+    </button>
+    
+    <!-- ปุ่มตั้งค่าระบบ (Admin) - Desktop -->
+    <button class="btn-settings" onclick="openAdminModal()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-weight: 500;">
+      <i class="fas fa-cog"></i>
+      <span>ตั้งค่าระบบ</span>
+    </button>
+    
+    <button class="btn-add" onclick="openModal('addModal')">
+      <i class="fas fa-plus"></i>
+      เพิ่มเอกสาร
+    </button>
+  </div>
+  
+  <!-- Advanced Filter Panel -->
+  <div id="advancedFilterPanel" class="advanced-filter-panel" style="display:none;">
+    <div class="filter-grid">
+      <!-- Date Filter -->
+      <div class="filter-group full-width">
+        <label class="filter-label">
+          <i class="fas fa-calendar-alt"></i> กรองตามวันที่
+        </label>
+        <select id="dateFilterType" class="filter-input" onchange="handleDateFilterTypeChange()">
+          <option value="all">ทั้งหมด</option>
+          <option value="quick">เลือกด่วน</option>
+          <option value="month-year">เดือน-ปี</option>
+          <option value="custom">กำหนดเอง</option>
+        </select>
+        
+        <select id="quickDatePreset" class="filter-input" style="display:none; margin-top:8px;" onchange="applyQuickDatePreset()">
+          <option value="">เลือกช่วงเวลา</option>
+          <option value="today">วันนี้</option>
+          <option value="week">สัปดาห์นี้</option>
+          <option value="month">เดือนนี้</option>
+          <option value="year">ปีนี้</option>
+        </select>
+        
+        <div id="monthYearSelectors" style="display:none; margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <select id="monthFilter" class="filter-input" onchange="applyMonthYearFilter()">
+            <option value="">เลือกเดือน</option>
+            <option value="1">มกราคม</option>
+            <option value="2">กุมภาพันธ์</option>
+            <option value="3">มีนาคม</option>
+            <option value="4">เมษายน</option>
+            <option value="5">พฤษภาคม</option>
+            <option value="6">มิถุนายน</option>
+            <option value="7">กรกฎาคม</option>
+            <option value="8">สิงหาคม</option>
+            <option value="9">กันยายน</option>
+            <option value="10">ตุลาคม</option>
+            <option value="11">พฤศจิกายน</option>
+            <option value="12">ธันวาคม</option>
+          </select>
+          <select id="yearFilter" class="filter-input" onchange="applyMonthYearFilter()">
+            <option value="">เลือกปี</option>
+          </select>
+        </div>
+        
+        <div id="customDateInputs" style="display:none; margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <input type="date" id="startDateFilter" class="filter-input" onchange="applyCustomDateFilter()">
+          <input type="date" id="endDateFilter" class="filter-input" onchange="applyCustomDateFilter()">
+        </div>
+      </div>
+      
+      <!-- Submitter Filter -->
+      <div class="filter-group">
+        <label class="filter-label">
+          <i class="fas fa-user"></i> ผู้ส่ง
+        </label>
+        <select id="submitterFilter" class="filter-input" onchange="applyAdvancedFilters()">
+          <option value="">ทุกคน</option>
+        </select>
+      </div>
+      
+      <!-- Tags Filter -->
+      <div class="filter-group">
+        <label class="filter-label">
+          <i class="fas fa-tags"></i> แท็ก
+        </label>
+        <select id="tagFilter" class="filter-input" onchange="applyAdvancedFilters()">
+          <option value="">ทุกแท็ก</option>
+        </select>
+      </div>
+      
+      <!-- File Type Filter -->
+      <div class="filter-group">
+        <label class="filter-label">
+          <i class="fas fa-file"></i> ชนิดไฟล์
+        </label>
+        <select id="fileTypeFilter" class="filter-input" onchange="applyAdvancedFilters()">
+          <option value="">ทุกชนิด</option>
+          <option value="pdf">PDF</option>
+          <option value="doc">Word</option>
+          <option value="xls">Excel</option>
+          <option value="ppt">PowerPoint</option>
+          <option value="image">รูปภาพ</option>
+          <option value="video">วิดีโอ</option>
+        </select>
+      </div>
+      
+      <!-- Status Filter -->
+      <div class="filter-group">
+        <label class="filter-label">
+          <i class="fas fa-info-circle"></i> สถานะ
+        </label>
+        <select id="statusFilter" class="filter-input" onchange="applyAdvancedFilters()">
+          <option value="">ทั้งหมด</option>
+          <option value="has-file">มีไฟล์แนบ</option>
+          <option value="no-file">ไม่มีไฟล์แนบ</option>
+          <option value="has-note">มีหมายเหตุ</option>
+          <option value="no-note">ไม่มีหมายเหตุ</option>
+        </select>
+      </div>
+      
+      <!-- Sort Options -->
+      <div class="filter-group">
+        <label class="filter-label">
+          <i class="fas fa-sort"></i> เรียงลำดับ
+        </label>
+        <button id="sortOrderBtn" class="filter-input sort-btn" onclick="toggleSortOrder()">
+          <i class="fas fa-sort-amount-down"></i>
+          <span id="sortOrderText">ล่าสุดก่อน</span>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Filter Actions -->
+    <div class="filter-actions">
+      <button class="btn-clear-filters" onclick="clearAdvancedFilters()">
+        <i class="fas fa-times"></i>
+        ล้างตัวกรองทั้งหมด
+      </button>
+      <button class="btn-apply-filters" onclick="applyAdvancedFilters()">
+        <i class="fas fa-check"></i>
+        ค้นหา (<span id="resultCount">0</span>)
+      </button>
+    </div>
+  </div>
+  
+  <!-- Active Filters Display -->
+  <div id="activeFilters" class="active-filters" style="display:none;"></div>
+</div>
+
+<!-- Documents Container -->
+<div class="documents-container">
+  <div id="documentsView">
+    <!-- Documents will be rendered here -->
+  </div>
+  
+  <!-- Pagination Container -->
+  <div class="pagination-container" id="paginationContainer" style="display: none;">
+  </div>
+</div>
+
+<!-- Edit Document Modal -->
+<div id="editModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>แก้ไขเอกสาร</h2>
+      <button class="close-modal" onclick="closeModal('editModal')">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <form id="editDocumentForm" onsubmit="handleEditDocument(event)">
+        <input type="hidden" id="edit_doc_id" name="edit_doc_id">
+
+        <div class="form-group">
+          <label>ชื่อเอกสาร</label>
+          <input type="text" id="edit_title" name="edit_title" required>
+        </div>
+
+        <div class="form-group">
+          <label>หมวดหมู่</label>
+          <select id="edit_category" required>
+            <option value="">เลือกหมวดหมู่</option>
+            <option value="งานฝ่ายบริหาร">งานฝ่ายบริหาร</option>
+            <option value="งานวิชาการ">งานวิชาการ</option>
+            <option value="งานบริหารบุคคล">งานบริหารบุคคล</option>
+            <option value="งานบริหารการเงินและสินทรัพย์">งานบริหารการเงินและสินทรัพย์</option>
+            <option value="งานบริหารทั่วไป">งานบริหารทั่วไป</option>
+            <option value="งานกิจกรรมโรงเรียน">งานกิจกรรมโรงเรียน</option>
+            <option value="งานส่งเสริมสนับสนุนอื่นๆ">งานส่งเสริมสนับสนุนอื่นๆ</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>ประเภทเอกสาร</label>
+          <select id="edit_document_type" required>
+            <option value="">เลือกประเภท</option>
+            <option value="หนังสือราชการ">หนังสือราชการ</option>
+            <option value="ประกาศ">ประกาศ</option>
+            <option value="คำสั่ง">คำสั่ง</option>
+            <option value="รูปภาพ">รูปภาพ</option>
+            <option value="ไฟล์เอกสาร">ไฟล์เอกสาร</option>
+            <option value="แผนการสอน">แผนการสอน</option>
+            <option value="รายงาน">รายงาน</option>
+            <option value="เรื่องทั่วไป">เรื่องทั่วไป</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>วันที่เอกสาร</label>
+          <input type="date" id="edit_document_date" required>
+        </div>
+        
+        <div class="form-group">
+          <label>ผู้ส่ง</label>
+          <select id="edit_submitter_name" required>
+            <option value="">เลือกผู้ส่ง</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>แท็ก</label>
+          <input type="text" id="edit_tags">
+        </div>
+        
+        <div class="form-group">
+          <label>หมายเหตุ</label>
+          <textarea id="edit_description"></textarea>
+        </div>
+        
+        <!-- ส่วนแสดงไฟล์ที่อัปโหลด -->
+        <div class="form-group">
+          <label>ไฟล์ที่อัปโหลด</label>
+          <div id="edit_file_list" class="file-list-container" style="margin-top: 8px;"></div>
+          <p class="form-note" style="margin-top: 8px; color: #64748b; font-size: 13px;">
+            <i class="fas fa-info-circle"></i> หมายเหตุ: การแก้ไขเอกสารไม่สามารถเปลี่ยนไฟล์ได้ หากต้องการเปลี่ยนไฟล์ กรุณาลบและสร้างใหม่
+          </p>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-cancel" onclick="closeModal('editModal')">ยกเลิก</button>
+      <button type="submit" form="editDocumentForm" class="btn-submit">บันทึกการแก้ไข</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Add Document Modal - รองรับอัปโหลดโฟลเดอร์ v9.0 ===== -->
+<div id="addModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2><i class="fas fa-plus-circle"></i> เพิ่มเอกสาร</h2>
+      <button class="close-modal" onclick="closeModal('addModal')">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <form id="addDocumentForm" onsubmit="handleAddDocument(event)">
+        <div class="form-group">
+          <label>ชื่อเอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+          <input type="text" 
+                 id="add_title" 
+                 name="add_title" 
+                 required
+                 placeholder="กรอกชื่อเอกสาร"
+                 oninvalid="this.setCustomValidity('⚠️ กรุณากรอกชื่อเอกสาร')"
+                 oninput="this.setCustomValidity('')">
+        </div>
+
+        <div class="form-group">
+          <label>หมวดหมู่ <span class="required-mark" style="color:#dc3545;">*</span></label>
+          <select id="add_category" 
+                  name="add_category" 
+                  required
+                  oninvalid="this.setCustomValidity('⚠️ กรุณาเลือกหมวดหมู่')"
+                  onchange="this.setCustomValidity('')">
+            <option value="">เลือกหมวดหมู่</option>
+            <option value="งานฝ่ายบริหาร">งานฝ่ายบริหาร</option>
+            <option value="งานวิชาการ">งานวิชาการ</option>
+            <option value="งานบริหารบุคคล">งานบริหารบุคคล</option>
+            <option value="งานบริหารการเงินและสินทรัพย์">งานบริหารการเงินและสินทรัพย์</option>
+            <option value="งานบริหารทั่วไป">งานบริหารทั่วไป</option>
+            <option value="งานกิจกรรมโรงเรียน">งานกิจกรรมโรงเรียน</option>
+            <option value="งานส่งเสริมสนับสนุนอื่นๆ">งานส่งเสริมสนับสนุนอื่นๆ</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>ประเภทเอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+          <select id="add_document_type" 
+                  name="add_document_type" 
+                  required
+                  oninvalid="this.setCustomValidity('⚠️ กรุณาเลือกประเภทเอกสาร')"
+                  onchange="this.setCustomValidity('')">
+            <option value="">เลือกประเภท</option>
+            <option value="หนังสือราชการ">หนังสือราชการ</option>
+            <option value="ประกาศ">ประกาศ</option>
+            <option value="คำสั่ง">คำสั่ง</option>
+            <option value="รูปภาพ">รูปภาพ</option>
+            <option value="ไฟล์เอกสาร">ไฟล์เอกสาร</option>
+            <option value="แผนการสอน">แผนการสอน</option>
+            <option value="รายงาน">รายงาน</option>
+            <option value="เรื่องทั่วไป">เรื่องทั่วไป</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>วันที่เอกสาร <span class="required-mark" style="color:#dc3545;">*</span></label>
+          <input type="date" 
+                 id="add_document_date" 
+                 name="add_document_date" 
+                 required
+                 oninvalid="this.setCustomValidity('⚠️ กรุณาเลือกวันที่เอกสาร')"
+                 oninput="this.setCustomValidity('')">
+        </div>
+
+        <div class="form-group">
+          <label>ผู้ส่ง <span class="required-mark" style="color:#dc3545;">*</span></label>
+          <select id="add_submitter_name" 
+                  name="add_submitter_name" 
+                  required
+                  oninvalid="this.setCustomValidity('⚠️ กรุณาเลือกผู้ส่ง')"
+                  onchange="this.setCustomValidity('')">
+            <option value="">เลือกผู้ส่ง</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>แท็ก</label>
+          <input type="text" 
+                 id="add_tags" 
+                 name="add_tags" 
+                 placeholder="คั่นด้วยเครื่องหมายจุลภาค เช่น เอกสาร,ด่วน">
+        </div>
+
+        <div class="form-group">
+          <label>หมายเหตุ</label>
+          <textarea id="add_description" 
+                    name="add_description" 
+                    placeholder="รายละเอียดเพิ่มเติม"></textarea>
+        </div>
+
+        <!-- ===== Upload Section - รองรับโฟลเดอร์ ===== -->
+        <div class="form-group">
+          <label><i class="fas fa-cloud-upload-alt"></i> อัปโหลดไฟล์</label>
+          
+          <!-- ⭐ Upload Method Tabs -->
+          <div class="upload-method-tabs">
+            <button type="button" id="fileTabBtn" class="upload-method-btn active" onclick="switchUploadMethod('file')">
+              <i class="fas fa-file"></i> เลือกไฟล์
+            </button>
+            <button type="button" id="folderTabBtn" class="upload-method-btn" onclick="switchUploadMethod('folder')">
+              <i class="fas fa-folder"></i> เลือกโฟลเดอร์
+            </button>
+            <button type="button" id="urlTabBtn" class="upload-method-btn" onclick="switchUploadMethod('url')">
+              <i class="fas fa-link"></i> URL
+            </button>
+          </div>
+
+          <!-- ⭐ File Upload Section -->
+          <div id="fileUploadSection">
+            <div id="fileUploadArea" class="file-upload-area" onclick="document.getElementById('add_file').click()">
+              <div class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+              <div class="upload-text">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+              <div class="upload-hint">รองรับหลายไฟล์ สูงสุด ~500MB/ไฟล์</div>
+              <input type="file" id="add_file" multiple style="display:none;">
+            </div>
+          </div>
+
+          <!-- ⭐ Folder Upload Section (ใหม่!) -->
+          <div id="folderUploadSection" style="display:none;">
+            <div id="folderUploadArea" class="file-upload-area folder-upload-area" onclick="document.getElementById('add_folder').click()">
+              <div class="upload-icon"><i class="fas fa-folder-open"></i></div>
+              <div class="upload-text">คลิกเพื่อเลือกโฟลเดอร์</div>
+              <div class="upload-hint">เลือกโฟลเดอร์เพื่ออัปโหลดไฟล์ทั้งหมดภายใน</div>
+              <!-- ⭐ Input สำหรับโฟลเดอร์ -->
+              <input type="file" 
+                     id="add_folder" 
+                     webkitdirectory 
+                     directory 
+                     multiple 
+                     style="display:none;">
+            </div>
+            
+            <!-- Browser Support Warning -->
+            <div id="folderBrowserWarning" class="browser-warning">
+              <i class="fas fa-exclamation-triangle"></i>
+              <span>เบราว์เซอร์ของคุณอาจไม่รองรับการเลือกโฟลเดอร์ กรุณาใช้ Chrome, Edge หรือ Firefox</span>
+            </div>
+          </div>
+
+          <!-- ⭐ URL Upload Section -->
+          <div id="urlUploadSection" style="display:none;">
+            <textarea id="urlInput" rows="4" class="form-control" placeholder="วาง URL ทีละบรรทัด&#10;เช่น:&#10;https://example.com/file1.pdf&#10;https://example.com/file2.docx"></textarea>
+
+            <div id="urlFileDisplay" class="file-name-display" style="margin-top:12px; display:none;">
+              <div class="file-list-container" id="urlListContainer"></div>
+            </div>
+
+            <div style="margin-top:8px; display:flex; gap:8px;">
+              <button type="button" class="btn" style="background:#f0f0f0;" onclick="previewUrls()">
+                <i class="fas fa-eye"></i> แสดงตัวอย่าง
+              </button>
+              <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="removeUrlFiles()">
+                <i class="fas fa-trash"></i> ล้าง URL
+              </button>
+            </div>
+          </div>
+
+          <!-- ⭐ File Actions (แสดงเมื่อมีไฟล์) -->
+          <div id="fileActionsSection" style="display:none; margin-top:12px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn" style="background:#f0f0f0;" onclick="document.getElementById('add_file_more').click()">
+                <i class="fas fa-plus"></i> เพิ่มไฟล์
+              </button>
+              <input type="file" id="add_file_more" multiple style="display:none;">
+              
+              <button type="button" class="btn" style="background:#10b981;color:#fff;" onclick="document.getElementById('add_folder_more').click()">
+                <i class="fas fa-folder-plus"></i> เพิ่มโฟลเดอร์
+              </button>
+              <input type="file" id="add_folder_more" webkitdirectory directory multiple style="display:none;">
+              
+              <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="removeAllFiles()">
+                <i class="fas fa-trash"></i> ลบทั้งหมด
+              </button>
+            </div>
+          </div>
+
+          <!-- ⭐ File List Display -->
+          <div id="fileNameDisplay" class="file-name-display" style="display:none;">
+            <div class="file-list-container" id="fileListContainer"></div>
+          </div>
+        </div>
+      </form>  
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn-cancel" onclick="closeModal('addModal')">ยกเลิก</button>
+      <button type="submit" form="addDocumentForm" class="btn-submit" id="submitBtn">
+        <i class="fas fa-save"></i> บันทึกเอกสาร
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Folder Upload JavaScript ===== -->
+<script>
+// ===== Folder Upload Functions v9.0 =====
+
+// ตัวแปร global
+var currentUploadMethod = 'file';
+var folderFilesCount = 0;
+
+/**
+ * ⭐ สลับวิธีการอัปโหลด (ไฟล์ / โฟลเดอร์ / URL)
+ */
+function switchUploadMethod(method) {
+  currentUploadMethod = method;
+  
+  // อัปเดตปุ่ม Tab
+  document.querySelectorAll('.upload-method-btn').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  
+  var activeBtn = document.getElementById(method + 'TabBtn');
+  if (activeBtn) activeBtn.classList.add('active');
+  
+  // ซ่อน/แสดง Section
+  var fileSection = document.getElementById('fileUploadSection');
+  var folderSection = document.getElementById('folderUploadSection');
+  var urlSection = document.getElementById('urlUploadSection');
+  
+  if (fileSection) fileSection.style.display = (method === 'file') ? 'block' : 'none';
+  if (folderSection) folderSection.style.display = (method === 'folder') ? 'block' : 'none';
+  if (urlSection) urlSection.style.display = (method === 'url') ? 'block' : 'none';
+  
+  // ตรวจสอบ Browser Support สำหรับ Folder
+  if (method === 'folder') {
+    checkFolderSupport();
+  }
+  
+  console.log('🔄 Upload Method:', method);
+}
+
+/**
+ * ⭐ ตรวจสอบว่า Browser รองรับการเลือกโฟลเดอร์หรือไม่
+ */
+function checkFolderSupport() {
+  var warning = document.getElementById('folderBrowserWarning');
+  if (!warning) return;
+  
+  // ตรวจสอบว่ารองรับ webkitdirectory หรือไม่
+  var input = document.createElement('input');
+  input.type = 'file';
+  
+  var supportsDirectory = 'webkitdirectory' in input || 'directory' in input;
+  
+  // ตรวจสอบว่าเป็น iOS หรือไม่ (iOS ไม่รองรับ)
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  
+  if (!supportsDirectory || isIOS) {
+    warning.classList.add('show');
+  } else {
+    warning.classList.remove('show');
+  }
+}
+
+/**
+ * ⭐ เพิ่มไฟล์จากโฟลเดอร์
+ */
+function addFolderToList(files) {
+  if (!files || files.length === 0) return;
+  
+  var maxSize = 500 * 1024 * 1024; // 500MB per file
+  var addedCount = 0;
+  var skippedCount = 0;
+  var folderName = '';
+  
+  // ดึงชื่อโฟลเดอร์จากไฟล์แรก
+  if (files[0] && files[0].webkitRelativePath) {
+    folderName = files[0].webkitRelativePath.split('/')[0];
+  }
+  
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    
+    // ข้ามไฟล์ที่ซ่อน
+    if (file.name.startsWith('.') || 
+        file.name === 'Thumbs.db' || 
+        file.name === 'desktop.ini' ||
+        file.name === '.DS_Store') {
+      skippedCount++;
+      continue;
+    }
+    
+    // ข้ามไฟล์ที่ใหญ่เกิน
+    if (file.size > maxSize) {
+      console.warn('⚠️ ข้ามไฟล์ใหญ่เกิน:', file.name);
+      skippedCount++;
+      continue;
+    }
+    
+    // เก็บ path เดิมไว้
+    file._relativePath = file.webkitRelativePath || '';
+    file._fromFolder = true;
+    file._folderName = folderName;
+    
+    // เช็คซ้ำ
+    var exists = false;
+    for (var j = 0; j < selectedFiles.length; j++) {
+      if (selectedFiles[j].name === file.name && 
+          selectedFiles[j]._relativePath === file._relativePath) {
+        exists = true;
+        break;
+      }
+    }
+    
+    if (!exists) {
+      selectedFiles.push(file);
+      addedCount++;
+    }
+  }
+  
+  // แสดงผล
+  displayAllFilesWithPath();
+  
+  // แสดง Actions Section
+  var actionsSection = document.getElementById('fileActionsSection');
+  if (actionsSection && selectedFiles.length > 0) {
+    actionsSection.style.display = 'block';
+  }
+  
+  // แจ้งผลลัพธ์
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: '📁 เพิ่มจากโฟลเดอร์ "' + folderName + '"',
+      html: 'เพิ่ม ' + addedCount + ' ไฟล์' + (skippedCount > 0 ? ' (ข้าม ' + skippedCount + ')' : ''),
+      showConfirmButton: false,
+      timer: 3000
+    });
+  }
+  
+  console.log('📁 โฟลเดอร์:', folderName, '| เพิ่ม:', addedCount, '| ข้าม:', skippedCount);
+}
+
+/**
+ * ⭐ แสดงรายการไฟล์พร้อม Path (สำหรับไฟล์จากโฟลเดอร์)
+ */
+function displayAllFilesWithPath() {
+  var fileNameDisplay = document.getElementById('fileNameDisplay');
+  var container = document.getElementById('fileListContainer');
+
+  if (!container || !fileNameDisplay) return;
+
+  if (selectedFiles.length === 0) {
+    fileNameDisplay.style.display = 'none';
+    container.innerHTML = '';
+    
+    var actionsSection = document.getElementById('fileActionsSection');
+    if (actionsSection) actionsSection.style.display = 'none';
+    
+    return;
+  }
+
+  container.innerHTML = '';
+
+  var iconMap = {
+    'pdf':'📕','doc':'📘','docx':'📘',
+    'xls':'📗','xlsx':'📗','ppt':'📙','pptx':'📙',
+    'jpg':'🖼️','jpeg':'🖼️','png':'🖼️','gif':'🖼️','webp':'🖼️',
+    'mp4':'🎬','mov':'🎬','avi':'🎬','mkv':'🎬','wmv':'🎬',
+    'mp3':'🎵','wav':'🎵','m4a':'🎵',
+    'zip':'📦','rar':'📦','7z':'📦',
+    'txt':'📝','csv':'📊'
+  };
+
+  var totalSize = 0;
+  var folderCount = 0;
+  var foldersSet = {};
+  
+  selectedFiles.forEach(function(file) {
+    totalSize += file.size;
+    if (file._fromFolder && file._folderName) {
+      foldersSet[file._folderName] = true;
+    }
+  });
+  
+  folderCount = Object.keys(foldersSet).length;
+  var totalSizeMB = (totalSize / (1024*1024)).toFixed(2);
+
+  selectedFiles.forEach(function(file, index) {
+    var sizeMB = (file.size / (1024*1024)).toFixed(2);
+    var sizeKB = (file.size / 1024).toFixed(2);
+    var sizeText = (file.size >= 1024*1024) ? sizeMB + ' MB' : sizeKB + ' KB';
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    var icon = iconMap[ext] || '📄';
+    
+    // แสดง path ถ้ามาจากโฟลเดอร์
+    var pathHtml = '';
+    if (file._relativePath) {
+      pathHtml = '<div class="file-path"><i class="fas fa-folder-open"></i> ' + escapeHtmlLocal(file._relativePath) + '</div>';
+    }
+    
+    // Badge สำหรับไฟล์จากโฟลเดอร์
+    var folderBadge = '';
+    if (file._fromFolder) {
+      folderBadge = '<span class="folder-badge"><i class="fas fa-folder"></i> ' + escapeHtmlLocal(file._folderName) + '</span>';
+    }
+
+    container.insertAdjacentHTML('beforeend', 
+      '<div class="file-list-item" id="file-item-' + index + '">' +
+        '<div class="file-icon">' + icon + '</div>' +
+        '<div class="file-details">' +
+          '<div class="file-name">' + escapeHtmlLocal(file.name) + folderBadge + '</div>' +
+          pathHtml +
+          '<div class="file-size">' + sizeText + '</div>' +
+        '</div>' +
+        '<button type="button" class="remove-file-btn" onclick="removeSingleFile(' + index + ')">' +
+          '<i class="fas fa-times"></i>' +
+        '</button>' +
+      '</div>'
+    );
+  });
+
+  // แสดงสรุป
+  var summaryClass = folderCount > 0 ? 'upload-summary has-folders' : 'upload-summary';
+  var folderInfo = folderCount > 0 ? ' จาก ' + folderCount + ' โฟลเดอร์' : '';
+  
+  container.insertAdjacentHTML('beforeend', 
+    '<div class="' + summaryClass + '">' +
+      '<i class="fas fa-info-circle"></i> ' +
+      'จำนวนทั้งหมด: ' + selectedFiles.length + ' ไฟล์' + folderInfo + ' (' + totalSizeMB + ' MB)' +
+    '</div>'
+  );
+
+  fileNameDisplay.style.display = 'block';
+  
+  // แสดง Actions Section
+  var actionsSection = document.getElementById('fileActionsSection');
+  if (actionsSection) {
+    actionsSection.style.display = 'block';
+  }
+}
+
+/**
+ * ⭐ Helper: Escape HTML
+ */
+function escapeHtmlLocal(text) {
+  if (!text) return '';
+  var div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+/**
+ * ⭐ ลบไฟล์ทีละรายการ
+ */
+function removeSingleFile(index) {
+  if (index >= 0 && index < selectedFiles.length) {
+    selectedFiles.splice(index, 1);
+    displayAllFilesWithPath();
+
+    if (selectedFiles.length === 0) {
+      var area = document.getElementById('fileUploadArea');
+      if (area) area.classList.remove('has-file');
+      
+      var actionsSection = document.getElementById('fileActionsSection');
+      if (actionsSection) actionsSection.style.display = 'none';
+    }
+  }
+}
+
+/**
+ * ⭐ ลบไฟล์ทั้งหมด
+ */
+function removeAllFiles() {
+  selectedFiles = [];
+
+  var fileInput = document.getElementById('add_file');
+  var fileInputMore = document.getElementById('add_file_more');
+  var folderInput = document.getElementById('add_folder');
+  var folderInputMore = document.getElementById('add_folder_more');
+  
+  if (fileInput) fileInput.value = '';
+  if (fileInputMore) fileInputMore.value = '';
+  if (folderInput) folderInput.value = '';
+  if (folderInputMore) folderInputMore.value = '';
+
+  var area = document.getElementById('fileUploadArea');
+  var folderArea = document.getElementById('folderUploadArea');
+  var list = document.getElementById('fileListContainer');
+  var box = document.getElementById('fileNameDisplay');
+  var actionsSection = document.getElementById('fileActionsSection');
+
+  if (area) area.classList.remove('has-file');
+  if (folderArea) folderArea.classList.remove('has-file');
+  if (list) list.innerHTML = '';
+  if (box) box.style.display = 'none';
+  if (actionsSection) actionsSection.style.display = 'none';
+  
+  console.log('🗑️ ลบไฟล์ทั้งหมดแล้ว');
+}
+
+// ===== Event Listeners =====
+document.addEventListener('DOMContentLoaded', function() {
+  
+  // File Input
+  var fileInput = document.getElementById('add_file');
+  if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+      if (typeof addFilesToList === 'function') {
+        addFilesToList(e.target.files);
+        displayAllFilesWithPath();
+      }
+    });
+  }
+  
+  // File Input More
+  var fileInputMore = document.getElementById('add_file_more');
+  if (fileInputMore) {
+    fileInputMore.addEventListener('change', function(e) {
+      if (typeof addFilesToList === 'function') {
+        addFilesToList(e.target.files);
+        displayAllFilesWithPath();
+      }
+    });
+  }
+  
+  // ⭐ Folder Input
+  var folderInput = document.getElementById('add_folder');
+  if (folderInput) {
+    folderInput.addEventListener('change', function(e) {
+      addFolderToList(e.target.files);
+    });
+  }
+  
+  // ⭐ Folder Input More
+  var folderInputMore = document.getElementById('add_folder_more');
+  if (folderInputMore) {
+    folderInputMore.addEventListener('change', function(e) {
+      addFolderToList(e.target.files);
+    });
+  }
+  
+  // URL Tab Button (legacy support)
+  var urlTabBtn = document.getElementById('urlTabBtn');
+  if (urlTabBtn) {
+    // ถ้ายังไม่มี onclick
+    if (!urlTabBtn.getAttribute('onclick')) {
+      urlTabBtn.addEventListener('click', function() {
+        switchUploadMethod('url');
+      });
+    }
+  }
+  
+  // Drag & Drop for folder area
+  var folderArea = document.getElementById('folderUploadArea');
+  if (folderArea) {
+    ['dragenter', 'dragover'].forEach(function(evt) {
+      folderArea.addEventListener(evt, function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        folderArea.classList.add('drag-over');
+      });
+    });
+    
+    ['dragleave', 'drop'].forEach(function(evt) {
+      folderArea.addEventListener(evt, function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        folderArea.classList.remove('drag-over');
+      });
+    });
+    
+    folderArea.addEventListener('drop', function(e) {
+      var items = e.dataTransfer.items;
+      if (items) {
+        var files = [];
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i].webkitGetAsEntry();
+          if (item) {
+            traverseFileTree(item, '', function(file) {
+              files.push(file);
+              if (files.length === getTotalEntries(items)) {
+                addFolderToList(files);
+              }
+            });
+          }
+        }
+      }
+    });
+  }
+  
+  console.log('✅ Folder Upload System Initialized');
+});
+
+/**
+ * ⭐ Traverse File Tree (สำหรับ Drag & Drop โฟลเดอร์)
+ */
+function traverseFileTree(item, path, callback) {
+  path = path || '';
+  
+  if (item.isFile) {
+    item.file(function(file) {
+      file._relativePath = path + file.name;
+      file._fromFolder = true;
+      file._folderName = path.split('/')[0] || 'Dropped Folder';
+      callback(file);
+    });
+  } else if (item.isDirectory) {
+    var dirReader = item.createReader();
+    dirReader.readEntries(function(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        traverseFileTree(entries[i], path + item.name + '/', callback);
+      }
+    });
+  }
+}
+
+function getTotalEntries(items) {
+  var count = 0;
+  for (var i = 0; i < items.length; i++) {
+    count++;
+  }
+  return count;
+}
+</script>
+
+<!-- View Document Modal -->
+<div id="viewModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>รายละเอียดเอกสาร</h2>
+      <button class="close-modal" onclick="closeModal('viewModal')">&times;</button>
+    </div>
+    <div class="modal-body" id="viewModalBody">
+      <!-- Content will be populated by JavaScript -->
+    </div>
+  </div>
+</div>
+
+<!-- Media Viewer Modal -->
+<div id="mediaViewerModal" class="media-viewer-modal">
+  <div class="media-viewer-container">
+    <div class="media-viewer-header">
+      <div class="media-viewer-title" id="mediaViewerTitle">กำลังโหลด...</div>
+      <button class="media-viewer-close" onclick="closeMediaViewer()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="media-viewer-content" id="mediaViewerContent">
+      <div class="media-loading">
+        <div class="media-loading-spinner"></div>
+        กำลังโหลดไฟล์...
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay">
+  <div class="spinner"></div>
+</div>

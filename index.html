@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <script>
+  (function guardWhenInDialog(){
+    try {
+      var inDialog =
+        (window.self !== window.top) ||
+        (location.search && /userCodeAppPanel|createOAuthDialog/i.test(location.search)) ||
+        (document.referrer && /userCodeAppPanel|createOAuthDialog/i.test(document.referrer));
+      if (inDialog) {
+        window.createRipple = function(){};
+        window.openDriveFolder = window.openDriveFolder || function(){};
+        window.__IN_GAS_DIALOG__ = true;
+        return;
+      }
+    } catch (e) {
+      window.__IN_GAS_DIALOG__ = true;
+      window.createRipple = function(){};
+      return;
+    }
+  })();
+  </script>
+
+  <title>ระบบ Data Center โรงเรียนบ้านโคกยางหนองถนน</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <?!= include('Styles') ?>
+</head>
+
+<body>
+  <?!= include('Content') ?>
+  <?!= include('EditUpload_Fix'); ?>
+  
+  <?!= include('AdminPanel') ?>
+
+  <?!= include('Script') ?>
+
+  <!-- ✅ Fixes (ใส่หลัง Script เสมอ) -->
+  <?!= include('MultiAccount_Fix') ?> 
+  <?!= include('MobileSpacing_Fix') ?>
+  <?!= include('ViewModal_Fix') ?>
+  
+
+</body>
+</html>

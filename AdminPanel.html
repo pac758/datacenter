@@ -1,0 +1,1415 @@
+<div id="adminModal" class="admin-modal">
+  <div class="admin-modal-content">
+    <div class="admin-header">
+      <h3><i class="fas fa-cog"></i> ตั้งค่าระบบ (Admin)</h3>
+      <button class="admin-close" onclick="closeAdminModal()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <div class="admin-body">
+      <div id="adminLoadingOverlay" class="admin-loading-overlay" style="display:none;">
+        <div class="admin-spinner"></div>
+        <div class="admin-loading-text" id="adminLoadingText">กำลังโหลด...</div>
+      </div>
+      
+      <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('school', this)">
+          <i class="fas fa-school"></i> <span>ข้อมูลโรงเรียน</span>
+        </button>
+        <button class="admin-tab" onclick="switchAdminTab('database', this)">
+          <i class="fas fa-database"></i> <span>ฐานข้อมูล</span>
+        </button>
+        <button class="admin-tab" onclick="switchAdminTab('theme', this)">
+          <i class="fas fa-palette"></i> <span>ธีม</span>
+        </button>
+      </div>
+      
+      <div id="tabSchool" class="admin-tab-content active">
+        <div class="admin-form-group">
+          <label><i class="fas fa-school"></i> ชื่อโรงเรียน (เต็ม)</label>
+          <input type="text" id="cfgSchoolName" class="admin-input" placeholder="โรงเรียนบ้านโคกยางหนองถนน">
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-tag"></i> ชื่อย่อ</label>
+          <input type="text" id="cfgSchoolShort" class="admin-input" placeholder="บ้านโคกยางฯ">
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-map-marker-alt"></i> ที่อยู่</label>
+          <input type="text" id="cfgSchoolAddress" class="admin-input" placeholder="ต.หนองถนน อ.ชุมพวง จ.นครราชสีมา">
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-envelope"></i> อีเมลผู้ดูแล</label>
+          <input type="email" id="cfgAdminEmail" class="admin-input" placeholder="admin@school.ac.th">
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-image"></i> โลโก้โรงเรียน</label>
+          <div class="admin-logo-section">
+            <div class="admin-logo-preview" id="logoPreview">
+              <span id="logoPlaceholderAdmin">🏫</span>
+              <img id="logoImageAdmin" src="" style="display:none; max-width:100%; max-height:100%; object-fit:contain;">
+            </div>
+            <div class="admin-logo-actions">
+              <input type="file" id="logoFileInput" accept="image/*" style="display:none;" onchange="previewLogo(this)">
+              <button type="button" class="admin-btn secondary" onclick="document.getElementById('logoFileInput').click()">
+                <i class="fas fa-upload"></i> เลือกไฟล์
+              </button>
+              <button type="button" class="admin-btn danger" onclick="removeLogo()">
+                <i class="fas fa-trash"></i> ลบโลโก้
+              </button>
+            </div>
+            <small class="admin-hint">แนะนำ: รูปสี่เหลี่ยมจตุรัส ขนาด 200x200 px ขึ้นไป (ไม่เกิน 2MB)</small>
+          </div>
+        </div>
+      </div>
+      
+      <div id="tabDatabase" class="admin-tab-content">
+        <div class="admin-alert info">
+          <i class="fas fa-info-circle"></i>
+          <span>คัดลอก ID จาก URL ของ Google Sheet และ Google Drive</span>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-table"></i> Spreadsheet ID <span class="required">*</span></label>
+          <input type="text" id="cfgSpreadsheetId" class="admin-input mono" placeholder="19Dr60-P9DgtaAc_3tJIABuNf_GVEttXHQYbDMnl7PVs">
+          <small class="admin-hint">URL: docs.google.com/spreadsheets/d/<strong>[ID นี้]</strong>/edit</small>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-file-alt"></i> ชื่อ Sheet <span class="required">*</span></label>
+          <input type="text" id="cfgSheetName" class="admin-input" placeholder="การตอบแบบฟอร์ม 1">
+          <small class="admin-hint">ชื่อ Tab ด้านล่างของ Google Sheet</small>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-folder"></i> Folder ID</label>
+          <input type="text" id="cfgFolderId" class="admin-input mono" placeholder="1SkiPR0RFqBAyQohk3hEAY2TuxUxRDuNC">
+          <small class="admin-hint">URL: drive.google.com/drive/folders/<strong>[ID นี้]</strong></small>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fab fa-google"></i> Google Form URL</label>
+          <input type="text" id="cfgGoogleFormUrl" class="admin-input" placeholder="https://docs.google.com/forms/d/e/.../viewform">
+          <small class="admin-hint">URL เต็มของ Google Form สำหรับเพิ่มเอกสาร</small>
+        </div>
+        
+        <div class="admin-actions-row">
+          <button type="button" id="btnTestConnection" class="admin-btn secondary" onclick="testConnection()">
+            <i class="fas fa-plug"></i> ทดสอบการเชื่อมต่อ
+          </button>
+        </div>
+      </div>
+      
+      <div id="tabTheme" class="admin-tab-content">
+        <div class="admin-form-group">
+          <label><i class="fas fa-fill-drip"></i> สีหลัก (Primary)</label>
+          <div class="admin-color-row">
+            <input type="color" id="cfgPrimaryColor" class="admin-color-input" value="#667eea">
+            <input type="text" id="cfgPrimaryColorText" class="admin-input" value="#667eea" style="flex:1;">
+          </div>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-fill-drip"></i> สีรอง (Secondary)</label>
+          <div class="admin-color-row">
+            <input type="color" id="cfgSecondaryColor" class="admin-color-input" value="#764ba2">
+            <input type="text" id="cfgSecondaryColorText" class="admin-input" value="#764ba2" style="flex:1;">
+          </div>
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-code-branch"></i> เวอร์ชัน</label>
+          <input type="text" id="cfgVersion" class="admin-input" placeholder="16.0">
+        </div>
+        
+        <div class="admin-form-group">
+          <label><i class="fas fa-copyright"></i> เครดิต</label>
+          <input type="text" id="cfgCredit" class="admin-input" placeholder="© 2568 @pthk">
+        </div>
+        
+        <div class="admin-theme-preview">
+          <div class="preview-label">ตัวอย่างธีม</div>
+          <div class="preview-header" id="themePreviewHeader">
+            <span>📚 ศูนย์ข้อมูล โรงเรียน...</span>
+          </div>
+          <div class="preview-button" id="themePreviewBtn">
+            <i class="fas fa-plus"></i> เพิ่มเอกสาร
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="admin-footer">
+      <button type="button" class="admin-btn secondary" onclick="resetConfig()">
+        <i class="fas fa-undo"></i> รีเซ็ต
+      </button>
+      <button type="button" class="admin-btn primary" id="btnSaveConfig" onclick="saveConfig()">
+        <i class="fas fa-save"></i> บันทึก
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+/* ⭐ FIX: บังคับให้ Popup แจ้งเตือนอยู่หน้าสุดเสมอ */
+.swal2-container {
+  z-index: 20000 !important; 
+}
+
+html.admin-modal-open,
+body.admin-modal-open {
+  overflow: hidden !important;
+  height: 100vh !important;
+}
+
+.admin-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.admin-modal.active {
+  display: flex !important;
+}
+
+.admin-modal-content {
+  background: #fff;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: adminSlideIn 0.3s ease-out;
+  position: relative;
+}
+
+@keyframes adminSlideIn {
+  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Loading Overlay */
+.admin-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  gap: 16px;
+}
+
+/* Spinner */
+.admin-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: adminSpin 0.8s linear infinite;
+}
+
+@keyframes adminSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.admin-loading-text {
+  font-size: 14px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* Header */
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  flex-shrink: 0;
+}
+
+.admin-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.admin-close {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.admin-close:hover {
+  background: rgba(255,255,255,0.3);
+  transform: rotate(90deg);
+}
+
+/* Body */
+.admin-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  position: relative;
+}
+
+/* Tabs */
+.admin-tabs {
+  display: flex;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+  gap: 4px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.admin-tab {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.admin-tab:hover { background: #e2e8f0; }
+
+.admin-tab.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.admin-tab i { font-size: 14px; }
+
+/* Tab Content */
+.admin-tab-content {
+  display: none;
+  padding: 20px;
+}
+
+.admin-tab-content.active { display: block; }
+
+/* Form Groups */
+.admin-form-group { margin-bottom: 20px; }
+
+.admin-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.admin-form-group label i {
+  color: #667eea;
+  margin-right: 6px;
+  width: 16px;
+  text-align: center;
+}
+
+.admin-form-group label .required { color: #dc2626; }
+
+.admin-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.admin-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.admin-input.mono {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.admin-hint {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.admin-hint strong { color: #667eea; }
+
+/* Alert Box */
+.admin-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.admin-alert.info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+/* Logo Section */
+.admin-logo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-logo-preview {
+  width: 120px;
+  height: 120px;
+  border: 2px dashed #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.admin-logo-preview span { font-size: 48px; }
+
+.admin-logo-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Color Row */
+.admin-color-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-color-input {
+  width: 50px;
+  height: 44px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 2px;
+}
+
+/* Theme Preview */
+.admin-theme-preview {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.preview-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px 8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.preview-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 0 0 8px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Buttons */
+.admin-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.admin-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-btn.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.admin-btn.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.admin-btn.secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.admin-btn.secondary:hover:not(:disabled) { background: #e2e8f0; }
+
+.admin-btn.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.admin-btn.danger:hover:not(:disabled) { background: #fecaca; }
+
+/* Actions Row */
+.admin-actions-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+/* Footer */
+.admin-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .admin-modal { padding: 0; align-items: flex-end; }
+  .admin-modal-content { max-height: 95vh; border-radius: 16px 16px 0 0; }
+  .admin-tabs { padding: 6px; }
+  .admin-tab { padding: 8px 10px; font-size: 12px; min-width: auto; }
+  .admin-tab span { display: none; }
+  .admin-tab-content { padding: 16px; }
+  .admin-color-row { flex-direction: column; align-items: stretch; }
+  .admin-color-input { width: 100%; }
+}
+</style>
+
+<script>
+(function() {
+  'use strict';
+  
+  var currentConfig = null;
+  var pendingLogoFile = null;
+  var adminSavedScrollY = 0;
+  var isProcessing = false;
+  
+var DEFAULT_CONFIG = {
+    schoolName: 'ชื่อโรงเรียนของคุณ',      // แก้เป็นค่ากลาง
+    schoolShort: 'ชื่อย่อ',
+    schoolAddress: '',
+    adminEmail: '',
+    spreadsheetId: '',                 // ปล่อยว่าง หรือใส่คำแนะนำ
+    sheetName: 'การตอบแบบฟอร์ม 1',       // ชื่อชีตมาตรฐานควรคงไว้
+    folderId: '',                      // ปล่อยว่าง
+    googleFormUrl: '',
+    primaryColor: '#667eea',           // สีเริ่มต้น
+    secondaryColor: '#764ba2',
+    version: '1.0',
+    credit: 'พัฒนาโดย...',
+    logoFileId: ''
+  };
+  
+// ===== 🔓 เปิด Admin Modal (Secured v12.6) =====
+  // ===== 🔓 เปิด Admin Modal (Secured v12.7 + Enter Support) =====
+  window.openAdminModal = function() {
+    console.log('🔒 Requesting Admin Access...');
+    
+    // แสดง Popup ถามรหัสผ่าน
+    Swal.fire({
+      title: '🔐 ผู้ดูแลระบบเท่านั้น',
+      text: 'กรุณากรอกรหัสผ่านเพื่อเข้าสู่การตั้งค่า',
+      input: 'password',
+      inputAttributes: {
+        autocapitalize: 'off',
+        placeholder: 'รหัสผ่าน...',
+        id: 'swal-admin-password' // เพิ่ม ID เพื่ออ้างอิงง่ายๆ
+      },
+      showCancelButton: true,
+      confirmButtonText: 'เข้าสู่ระบบ',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#667eea',
+      cancelButtonColor: '#94a3b8',
+      showLoaderOnConfirm: true,
+      // ⭐ ส่วนที่แก้ไข: เพิ่มการรองรับปุ่ม Enter และ Z-Index
+      didOpen: function() {
+          // 1. แก้ Z-Index
+          var c = Swal.getContainer();
+          if(c) c.style.setProperty('z-index', '99999', 'important');
+          
+          // 2. สั่ง Focus ที่ช่องกรอกรหัสทันที และดักปุ่ม Enter
+          var input = Swal.getInput();
+          if (input) {
+              input.focus();
+              input.addEventListener('keypress', function(e) {
+                  if (e.key === 'Enter') {
+                      Swal.clickConfirm(); // สั่งให้กดปุ่มยืนยัน
+                  }
+              });
+          }
+      },
+      preConfirm: (password) => {
+        // ส่งรหัสไปเช็คที่ Server
+        return new Promise((resolve, reject) => {
+           if (!password) {
+             Swal.showValidationMessage('กรุณากรอกรหัสผ่าน');
+             resolve(false);
+             return;
+           }
+           
+           google.script.run
+            .withSuccessHandler(function(result) {
+               if(result && result.success) {
+                 if(result.token) {
+                   sessionStorage.setItem('adminToken', result.token);
+                 }
+                 resolve(true);
+               } else {
+                 Swal.showValidationMessage('❌ ' + (result && result.message ? result.message : 'รหัสผ่านไม่ถูกต้อง'));
+                 resolve(false);
+               }
+            })
+            .withFailureHandler(function(error) {
+               Swal.showValidationMessage('เกิดข้อผิดพลาด: ' + error);
+               resolve(false);
+            })
+            .checkAdminPassword(password);
+        });
+      },
+      
+      allowOutsideClick: () => !Swal.isLoading()
+    }).then((result) => {
+      // ถ้ารหัสผ่านถูกต้อง (isConfirmed = true) ให้เปิดหน้า Admin
+      if (result.isConfirmed) {
+         showAdminPanel(); // เรียกฟังก์ชันเปิดหน้าต่างจริง
+      }
+    });
+  };
+
+  // ฟังก์ชันภายในสำหรับเปิดหน้าต่าง (เหมือนเดิม)
+  function showAdminPanel() {
+    console.log('🔓 Access Granted: Opening Admin Modal');
+    
+    var modal = document.getElementById('adminModal');
+    if (!modal) {
+      console.error('❌ ไม่พบ #adminModal');
+      return;
+    }
+    
+    modal.removeAttribute('aria-hidden');
+    
+    adminSavedScrollY = window.scrollY || window.pageYOffset || 0;
+    document.documentElement.classList.add('admin-modal-open');
+    document.body.classList.add('admin-modal-open');
+    modal.classList.add('active');
+    
+    var closeBtn = modal.querySelector('.admin-close');
+    if(closeBtn) setTimeout(function(){ closeBtn.focus(); }, 100);
+
+    setTimeout(function() { modal.scrollTop = 0; }, 50);
+    
+    loadConfig();
+  }
+  
+  // ===== 🔒 ปิด Admin Modal (FIXED) =====
+  window.closeAdminModal = function() {
+    console.log('🔒 closeAdminModal');
+    
+    if (isProcessing) {
+      if (!confirm('ระบบกำลังบันทึกข้อมูล ต้องการปิดหรือไม่?')) return;
+    }
+    
+    var modal = document.getElementById('adminModal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true'); 
+    }
+    
+    document.documentElement.classList.remove('admin-modal-open');
+    document.body.classList.remove('admin-modal-open');
+    document.body.style.overflow = '';
+    
+    if (adminSavedScrollY > 0) window.scrollTo(0, adminSavedScrollY);
+    
+    pendingLogoFile = null;
+    hideLoading();
+  };
+  
+  // ===== 🔀 สลับแท็บ =====
+  window.switchAdminTab = function(tabName, btn) {
+    document.querySelectorAll('#adminModal .admin-tab').forEach(function(t) {
+      t.classList.remove('active');
+    });
+    if (btn) btn.classList.add('active');
+    
+    document.querySelectorAll('#adminModal .admin-tab-content').forEach(function(c) {
+      c.classList.remove('active');
+    });
+    
+    var tabId = 'tab' + tabName.charAt(0).toUpperCase() + tabName.slice(1);
+    var el = document.getElementById(tabId);
+    if (el) el.classList.add('active');
+  };
+  
+  // ===== 📖 โหลด Config =====
+  window.loadConfig = function() {
+    console.log('📖 Loading config from server...');
+    showAdminLoading(true);
+    
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function(config) {
+          console.log('✅ Config loaded:', config);
+          currentConfig = config || DEFAULT_CONFIG;
+          populateForm(currentConfig);
+          loadLogoPreview();
+          showAdminLoading(false);
+        })
+        .withFailureHandler(function(error) {
+          console.error('❌ Load config failed:', error);
+          currentConfig = DEFAULT_CONFIG;
+          populateForm(DEFAULT_CONFIG);
+          showAdminLoading(false);
+          Swal.fire({
+             title: 'โหลด Config ไม่สำเร็จ',
+             text: error.message || String(error),
+             icon: 'error',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .getSchoolConfig();
+    } else {
+      console.warn('⚠️ google.script.run not available');
+      currentConfig = DEFAULT_CONFIG;
+      populateForm(DEFAULT_CONFIG);
+      showAdminLoading(false);
+    }
+  };
+  
+  function populateForm(config) {
+    if (!config) return;
+    
+    setValue('cfgSchoolName', config.schoolName);
+    setValue('cfgSchoolShort', config.schoolShort);
+    setValue('cfgSchoolAddress', config.schoolAddress);
+    setValue('cfgAdminEmail', config.adminEmail);
+    setValue('cfgSpreadsheetId', config.spreadsheetId);
+    setValue('cfgSheetName', config.sheetName);
+    setValue('cfgFolderId', config.folderId);
+    setValue('cfgGoogleFormUrl', config.googleFormUrl);
+    setValue('cfgPrimaryColor', config.primaryColor || '#667eea');
+    setValue('cfgPrimaryColorText', config.primaryColor || '#667eea');
+    setValue('cfgSecondaryColor', config.secondaryColor || '#764ba2');
+    setValue('cfgSecondaryColorText', config.secondaryColor || '#764ba2');
+    setValue('cfgVersion', config.version);
+    setValue('cfgCredit', config.credit);
+    
+    setupColorSync();
+    updateThemePreview();
+  }
+  
+  function setValue(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.value = value || '';
+  }
+  
+  function getValue(id) {
+    var el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  }
+  
+  function setupColorSync() {
+    var primaryColor = document.getElementById('cfgPrimaryColor');
+    var primaryText = document.getElementById('cfgPrimaryColorText');
+    
+    if (primaryColor && primaryText) {
+      primaryColor.oninput = function() {
+        primaryText.value = primaryColor.value;
+        updateThemePreview();
+      };
+      primaryText.oninput = function() {
+        if (/^#[0-9A-Fa-f]{6}$/.test(primaryText.value)) {
+          primaryColor.value = primaryText.value;
+          updateThemePreview();
+        }
+      };
+    }
+    
+    var secondaryColor = document.getElementById('cfgSecondaryColor');
+    var secondaryText = document.getElementById('cfgSecondaryColorText');
+    
+    if (secondaryColor && secondaryText) {
+      secondaryColor.oninput = function() {
+        secondaryText.value = secondaryColor.value;
+        updateThemePreview();
+      };
+      secondaryText.oninput = function() {
+        if (/^#[0-9A-Fa-f]{6}$/.test(secondaryText.value)) {
+          secondaryColor.value = secondaryText.value;
+          updateThemePreview();
+        }
+      };
+    }
+  }
+  
+  function updateThemePreview() {
+    var primary = getValue('cfgPrimaryColor') || '#667eea';
+    var secondary = getValue('cfgSecondaryColor') || '#764ba2';
+    var schoolName = getValue('cfgSchoolName') || 'โรงเรียน...';
+    
+    var header = document.getElementById('themePreviewHeader');
+    var btn = document.getElementById('themePreviewBtn');
+    
+    if (header) {
+      header.style.background = 'linear-gradient(135deg, ' + primary + ', ' + secondary + ')';
+      header.innerHTML = '<span>📚 ศูนย์ข้อมูล ' + schoolName.substring(0, 20) + '</span>';
+    }
+    if (btn) {
+      btn.style.background = 'linear-gradient(135deg, ' + primary + ', ' + secondary + ')';
+    }
+  }
+  
+  // ===== 🖼️ Preview โลโก้ =====
+  window.previewLogo = function(input) {
+    if (input.files && input.files[0]) {
+      var file = input.files[0];
+      
+      if (file.size > 2 * 1024 * 1024) {
+        Swal.fire({
+             title: 'ไฟล์ใหญ่เกินไป',
+             text: 'กรุณาเลือกไฟล์ขนาดไม่เกิน 2MB',
+             icon: 'warning',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+        });
+        input.value = '';
+        return;
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        Swal.fire({
+             title: 'ไฟล์ไม่ถูกต้อง',
+             text: 'กรุณาเลือกไฟล์รูปภาพ',
+             icon: 'warning',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+        });
+        input.value = '';
+        return;
+      }
+      
+      pendingLogoFile = file;
+      console.log('🖼️ Selected logo:', file.name);
+      
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var placeholder = document.getElementById('logoPlaceholderAdmin');
+        var img = document.getElementById('logoImageAdmin');
+        
+        if (placeholder) placeholder.style.display = 'none';
+        if (img) {
+          img.src = e.target.result;
+          img.style.display = 'block';
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  // ===== 🗑️ ลบโลโก้ =====
+  window.removeLogo = function() {
+    Swal.fire({
+        title: 'ยืนยันการลบ?',
+        text: "คุณต้องการลบโลโก้ใช่หรือไม่",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'ลบเลย',
+        cancelButtonText: 'ยกเลิก',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            performRemoveLogo();
+        }
+    });
+  };
+
+  function performRemoveLogo() {
+    var placeholder = document.getElementById('logoPlaceholderAdmin');
+    var img = document.getElementById('logoImageAdmin');
+    var input = document.getElementById('logoFileInput');
+    
+    if (placeholder) placeholder.style.display = 'block';
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    if (input) input.value = '';
+    
+    pendingLogoFile = null;
+    
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      showAdminLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showAdminLoading(false);
+          console.log('🗑️ Logo removed:', result);
+          if (currentConfig) currentConfig.logoFileId = '';
+          Swal.fire({
+             title: 'ลบสำเร็จ',
+             text: 'ลบโลโก้เรียบร้อยแล้ว',
+             icon: 'success',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .withFailureHandler(function(error) {
+          showAdminLoading(false);
+          console.error('❌ Remove logo failed:', error);
+          Swal.fire({
+             title: 'ลบไม่สำเร็จ',
+             text: error.message || String(error),
+             icon: 'error',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .removeSchoolLogo();
+    }
+  }
+  
+  function loadLogoPreview() {
+    console.log('🖼️ Loading logo preview, logoFileId:', currentConfig ? currentConfig.logoFileId : 'N/A');
+    
+    var placeholder = document.getElementById('logoPlaceholderAdmin');
+    var img = document.getElementById('logoImageAdmin');
+    
+    if (currentConfig && currentConfig.logoFileId) {
+      if (placeholder) placeholder.style.display = 'none';
+      if (img) {
+        img.src = 'https://drive.google.com/thumbnail?id=' + currentConfig.logoFileId + '&sz=w200';
+        img.style.display = 'block';
+        img.onerror = function() {
+          console.warn('⚠️ Logo thumbnail failed');
+          if (placeholder) placeholder.style.display = 'block';
+          img.style.display = 'none';
+        };
+      }
+    } else {
+      if (placeholder) placeholder.style.display = 'block';
+      if (img) img.style.display = 'none';
+    }
+  }
+  
+  // ===== 💾 บันทึก Config (ปรับปรุง UI) =====
+  window.saveConfig = function() {
+    console.log('💾 ===== saveConfig START v12.5 =====');
+    
+    if (isProcessing) {
+      console.warn('⚠️ Already processing...');
+      return;
+    }
+    
+    var saveBtn = document.getElementById('btnSaveConfig');
+    var originalBtnText = saveBtn ? saveBtn.innerHTML : 'บันทึก';
+    
+    var config = {
+      schoolName: getValue('cfgSchoolName'),
+      schoolShort: getValue('cfgSchoolShort'),
+      schoolAddress: getValue('cfgSchoolAddress'),
+      adminEmail: getValue('cfgAdminEmail'),
+      spreadsheetId: getValue('cfgSpreadsheetId'),
+      sheetName: getValue('cfgSheetName'),
+      folderId: getValue('cfgFolderId'),
+      googleFormUrl: getValue('cfgGoogleFormUrl'),
+      primaryColor: getValue('cfgPrimaryColor'),
+      secondaryColor: getValue('cfgSecondaryColor'),
+      version: getValue('cfgVersion'),
+      credit: getValue('cfgCredit'),
+      logoFileId: currentConfig ? (currentConfig.logoFileId || '') : ''
+    };
+    
+    if (!config.spreadsheetId) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ข้อมูลไม่ครบถ้วน',
+        text: 'กรุณาระบุ Spreadsheet ID',
+        confirmButtonColor: '#f59e0b',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+    
+    if (!config.sheetName) {
+      config.sheetName = 'การตอบแบบฟอร์ม 1';
+    }
+    
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      Swal.fire({
+        icon: 'error',
+        title: 'ข้อผิดพลาด',
+        text: 'ไม่สามารถเชื่อมต่อกับ Server ได้ กรุณารีโหลดหน้าเว็บ',
+        confirmButtonColor: '#ef4444',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+    
+    isProcessing = true;
+    
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> กำลังบันทึก...';
+    }
+    
+    if (pendingLogoFile) {
+      console.log('🖼️ Has pending logo, uploading first...');
+      uploadLogoFirst(config, saveBtn, originalBtnText);
+    } else {
+      console.log('📤 No pending logo, saving config directly...');
+      doSaveConfig(config, saveBtn, originalBtnText);
+    }
+  };
+  
+  // ===== 🖼️ อัปโหลดโลโก้ก่อน (ปรับปรุง UI) =====
+  function uploadLogoFirst(config, saveBtn, originalBtnText) {
+    console.log('🖼️ uploadLogoFirst...');
+    
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var base64 = e.target.result.split(',')[1];
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.success) {
+            config.logoFileId = result.fileId;
+            pendingLogoFile = null;
+            doSaveConfig(config, saveBtn, originalBtnText);
+          } else {
+            restoreButton(saveBtn, originalBtnText);
+            showAdminLoading(false);
+            
+            Swal.fire({
+              icon: 'error',
+              title: 'อัปโหลดโลโก้ไม่สำเร็จ',
+              text: result ? result.error : 'Unknown error',
+              confirmButtonColor: '#ef4444',
+              didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+            });
+          }
+        })
+        .withFailureHandler(function(error) {
+          restoreButton(saveBtn, originalBtnText);
+          showAdminLoading(false);
+          
+          Swal.fire({
+            icon: 'error',
+            title: 'เกิดข้อผิดพลาด',
+            text: 'อัปโหลดโลโก้ไม่สำเร็จ: ' + error,
+            confirmButtonColor: '#ef4444',
+            didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .uploadSchoolLogo(base64, pendingLogoFile.type, pendingLogoFile.name);
+    };
+    
+    reader.onerror = function(e) {
+      restoreButton(saveBtn, originalBtnText);
+      showAdminLoading(false);
+      Swal.fire({
+        title: 'ข้อผิดพลาด',
+        text: 'ไม่สามารถอ่านไฟล์โลโก้ได้',
+        icon: 'error',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+    };
+    
+    reader.readAsDataURL(pendingLogoFile);
+  }
+  
+  // ===== 💾 บันทึก Config จริงๆ (แก้ไขหน้าขาว + อัปเดตทันที) =====
+  function doSaveConfig(config, saveBtn, originalBtnText) {
+    console.log('💾 doSaveConfig...');
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        isProcessing = false;
+        showAdminLoading(false);
+        restoreButton(saveBtn, originalBtnText);
+        
+        if (result && result.success) {
+          currentConfig = result.config || config;
+          
+          Swal.fire({
+            icon: 'success',
+            title: 'บันทึกเรียบร้อย!',
+            text: 'อัปเดตการตั้งค่าเข้าระบบแล้ว',
+            showConfirmButton: false,
+            timer: 1500,
+            timerProgressBar: true,
+            didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+
+          closeAdminModal();
+          
+          if (typeof loadSchoolLogo === 'function') {
+             loadSchoolLogo(); 
+          }
+          
+          updateThemeOnPage(currentConfig);
+
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'บันทึกไม่สำเร็จ',
+            text: result ? result.error : 'Unknown error',
+            confirmButtonColor: '#ef4444',
+            didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        }
+      })
+      .withFailureHandler(function(error) {
+        isProcessing = false;
+        showAdminLoading(false);
+        restoreButton(saveBtn, originalBtnText);
+        
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาดร้ายแรง',
+          text: 'ไม่สามารถติดต่อ Server ได้: ' + error,
+          confirmButtonColor: '#ef4444',
+          didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+        });
+      })
+      .saveSchoolConfig(config);
+  }
+
+// ⭐ ฟังก์ชันช่วยอัปเดตหน้าจอทันที (แก้ไขให้เปลี่ยนสี Gradient ด้วย)
+function updateThemeOnPage(config) {
+    if(!config) return;
+    
+    const root = document.documentElement;
+    
+    // 1. อัปเดตสีพื้นฐาน
+    if(config.primaryColor) root.style.setProperty('--primary', config.primaryColor);
+    if(config.secondaryColor) root.style.setProperty('--secondary', config.secondaryColor);
+    
+    // 2. ⭐ สำคัญ: อัปเดต Gradient (ตัวนี้คือตัวที่แสดงผลจริงบนปุ่มและหัวข้อ)
+    if(config.primaryColor && config.secondaryColor) {
+        const newGradient = 'linear-gradient(135deg, ' + config.primaryColor + ' 0%, ' + config.secondaryColor + ' 100%)';
+        root.style.setProperty('--gradient-primary', newGradient);
+    }
+    
+    // 3. อัปเดตชื่อโรงเรียนใน Header
+    const headerTitle = document.querySelector('.header h1');
+    if(headerTitle && config.schoolName) {
+        headerTitle.textContent = 'ระบบศูนย์กลางข้อมูล ' + config.schoolName;
+    }
+    
+    // 4. อัปเดตเครดิตใน Footer
+    const footerCredit = document.querySelector('.header p');
+    if(footerCredit) {
+        footerCredit.textContent = (config.credit || '') + ' — Version ' + (config.version || '');
+    }
+    
+    console.log('🔄 อัปเดตธีมหน้าจอเรียบร้อย (รวม Gradient)');
+}
+
+  function restoreButton(btn, text) {
+    if (btn) {
+      btn.innerHTML = text;
+      btn.disabled = false;
+    }
+  }
+  
+  // ===== 🔄 รีเซ็ต Config =====
+  window.resetConfig = function() {
+    Swal.fire({
+        title: 'ยืนยันการรีเซ็ต?',
+        text: "การตั้งค่าทั้งหมดจะกลับเป็นค่าเริ่มต้น",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'ยืนยันรีเซ็ต',
+        cancelButtonText: 'ยกเลิก',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            performResetConfig();
+        }
+    });
+  };
+
+  function performResetConfig() {
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      showAdminLoading(true);
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showAdminLoading(false);
+          if (result && result.success) {
+            currentConfig = result.config || DEFAULT_CONFIG;
+            populateForm(currentConfig);
+            
+            var placeholder = document.getElementById('logoPlaceholderAdmin');
+            var img = document.getElementById('logoImageAdmin');
+            if (placeholder) placeholder.style.display = 'block';
+            if (img) { img.src = ''; img.style.display = 'none'; }
+            
+            Swal.fire({
+                title: 'สำเร็จ',
+                text: 'รีเซ็ตการตั้งค่าเรียบร้อยแล้ว',
+                icon: 'success',
+                didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+            });
+          } else {
+            Swal.fire({
+                title: 'ผิดพลาด',
+                text: 'รีเซ็ตไม่สำเร็จ: ' + (result ? result.error : 'Unknown'),
+                icon: 'error',
+                didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+            });
+          }
+        })
+        .withFailureHandler(function(error) {
+          showAdminLoading(false);
+          Swal.fire({
+             title: 'ผิดพลาด',
+             text: 'รีเซ็ตไม่สำเร็จ: ' + error,
+             icon: 'error',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .resetSchoolConfig();
+    }
+  }
+  
+  // ===== 🔌 ทดสอบการเชื่อมต่อ (Loading Button State) =====
+  window.testConnection = function() {
+    var spreadsheetId = getValue('cfgSpreadsheetId');
+    var sheetName = getValue('cfgSheetName') || 'การตอบแบบฟอร์ม 1';
+    var folderId = getValue('cfgFolderId');
+    
+    if (!spreadsheetId) {
+      Swal.fire({
+         title: 'ข้อมูลไม่ครบ',
+         text: 'กรุณาระบุ Spreadsheet ID',
+         icon: 'warning',
+         didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+    
+    console.log('🔌 Testing connection...');
+    
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      // 1. Get Button
+      var btn = document.getElementById('btnTestConnection');
+      var originalText = btn ? btn.innerHTML : '';
+
+      // 2. Set Loading State
+      if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> กำลังตรวจสอบ...';
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.success) {
+            if (folderId) {
+              testFolderAfterSheet(result, folderId, btn, originalText);
+            } else {
+              if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+              showConnectionResult(result, null);
+            }
+          } else {
+            if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+            var msg = '❌ ' + (result ? result.error : 'Unknown error');
+            if (result && result.availableSheets) {
+              msg += '<br><br><b>Sheet ที่พบ:</b><br>• ' + result.availableSheets.join('<br>• ');
+            }
+            Swal.fire({
+                icon: 'error',
+                title: 'เชื่อมต่อ Spreadsheet ไม่สำเร็จ',
+                html: msg,
+                didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+            });
+          }
+        })
+        .withFailureHandler(function(error) {
+          if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+          Swal.fire({
+             title: 'เกิดข้อผิดพลาด',
+             text: error.message || String(error),
+             icon: 'error',
+             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        })
+        .testSpreadsheetConnection(spreadsheetId, sheetName);
+    }
+  };
+  
+  function testFolderAfterSheet(sheetResult, folderId, btn, originalText) {
+    google.script.run
+      .withSuccessHandler(function(folderResult) {
+        if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+        showConnectionResult(sheetResult, folderResult);
+      })
+      .withFailureHandler(function(error) {
+        if(btn) { btn.disabled = false; btn.innerHTML = originalText; }
+        showConnectionResult(sheetResult, { success: false, error: error });
+      })
+      .testFolderConnection(folderId);
+  }
+  
+  function showConnectionResult(sheetResult, folderResult) {
+    var htmlContent = '<div style="text-align: left; font-size: 14px;">';
+    
+    htmlContent += '<h4 style="color: #10b981; margin-bottom: 5px;"><i class="fas fa-check-circle"></i> Spreadsheet เชื่อมต่อสำเร็จ!</h4>';
+    htmlContent += '<ul style="margin-top: 0; padding-left: 20px;">';
+    htmlContent += '<li><b>ชื่อไฟล์:</b> ' + sheetResult.details.spreadsheetName + '</li>';
+    htmlContent += '<li><b>ชื่อ Sheet:</b> ' + sheetResult.details.sheetName + '</li>';
+    htmlContent += '<li><b>จำนวนแถวข้อมูล:</b> ' + sheetResult.details.rows + '</li>';
+    htmlContent += '</ul>';
+    
+    if (folderResult) {
+      htmlContent += '<hr style="margin: 10px 0; border: 0; border-top: 1px solid #eee;">';
+      if (folderResult.success) {
+        htmlContent += '<h4 style="color: #10b981; margin-bottom: 5px;"><i class="fas fa-check-circle"></i> Folder เชื่อมต่อสำเร็จ!</h4>';
+        htmlContent += '<ul style="margin-top: 0; padding-left: 20px;">';
+        htmlContent += '<li><b>ชื่อ Folder:</b> ' + folderResult.details.folderName + '</li>';
+        htmlContent += '</ul>';
+      } else {
+        htmlContent += '<h4 style="color: #ef4444; margin-bottom: 5px;"><i class="fas fa-times-circle"></i> Folder เชื่อมต่อไม่สำเร็จ</h4>';
+        htmlContent += '<p style="color: #ef4444; margin-left: 20px;">' + folderResult.error + '</p>';
+      }
+    }
+    
+    htmlContent += '</div>';
+    
+    Swal.fire({
+        title: 'ผลการทดสอบ',
+        html: htmlContent,
+        icon: (folderResult && !folderResult.success) ? 'warning' : 'success',
+        confirmButtonText: 'ตกลง',
+        didOpen: function() {
+            var container = Swal.getContainer();
+            if (container) {
+                container.style.setProperty('z-index', '99999', 'important');
+            }
+        }
+    });
+  }
+  
+  function showAdminLoading(show) {
+    isProcessing = show;
+    var overlay = document.getElementById('adminLoadingOverlay');
+    if (overlay) overlay.style.display = show ? 'flex' : 'none';
+    
+    var buttons = document.querySelectorAll('#adminModal .admin-btn');
+    buttons.forEach(function(btn) {
+      btn.disabled = show;
+      btn.style.opacity = show ? '0.6' : '1';
+    });
+  }
+  
+  // ===== Event Listeners =====
+  document.addEventListener('click', function(e) {
+    if (e.target && e.target.id === 'adminModal') {
+      closeAdminModal();
+    }
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var modal = document.getElementById('adminModal');
+      if (modal && modal.classList.contains('active')) {
+        closeAdminModal();
+      }
+    }
+  });
+  
+  document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('adminModal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+    } 
+    
+    document.documentElement.classList.remove('admin-modal-open');
+    document.body.classList.remove('admin-modal-open');
+    console.log('🔧 Admin Panel v12.5 ready');
+  });
+  
+})();
+</script>
