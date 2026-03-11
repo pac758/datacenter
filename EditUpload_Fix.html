@@ -184,7 +184,49 @@
     if(typeof Swal!=='undefined'&&n>0)Swal.fire({toast:true,position:'top-end',icon:'success',title:'เพิ่ม '+n+' URL',showConfirmButton:false,timer:2000});
   };
 
-  // ===== Upload + Save =====
+  // ===== Upload + Save (รองรับ Chunked Upload สำหรับไฟล์ใหญ่) =====
+  var EDIT_CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+  var EDIT_LARGE_THRESHOLD = 20 * 1024 * 1024; // >20MB ใช้ chunked
+
+  function _readAsArrayBuffer(file){
+    return new Promise(function(resolve,reject){
+      var r=new FileReader();r.onload=function(e){resolve(e.target.result);};r.onerror=reject;r.readAsArrayBuffer(file);
+    });
+  }
+  function _ab2b64(buf){
+    var binary='',bytes=new Uint8Array(buf),len=bytes.byteLength;
+    for(var i=0;i<len;i++)binary+=String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+  function _uploadChunkedEdit(file){
+    return _readAsArrayBuffer(file).then(function(ab){
+      var totalBytes=ab.byteLength;
+      var totalChunks=Math.ceil(totalBytes/EDIT_CHUNK_SIZE);
+      console.log('📦 Edit chunked upload: '+file.name+' ('+totalChunks+' chunks)');
+      return new Promise(function(resolve,reject){
+        google.script.run.withSuccessHandler(function(sr){
+          if(!sr||!sr.success){reject(new Error(sr?sr.error:'Start failed'));return;}
+          var uploadId=sr.uploadId,ci=0;
+          function sendChunk(){
+            if(ci>=totalChunks){
+              google.script.run.withSuccessHandler(function(fr){
+                if(fr&&fr.success)resolve(fr);else reject(new Error(fr?fr.error:'Finish failed'));
+              }).withFailureHandler(reject).finishChunkedUpload(uploadId);
+              return;
+            }
+            var start=ci*EDIT_CHUNK_SIZE,end=Math.min(start+EDIT_CHUNK_SIZE,totalBytes);
+            var chunk64=_ab2b64(ab.slice(start,end));
+            google.script.run.withSuccessHandler(function(cr){
+              if(!cr||!cr.success){reject(new Error(cr?cr.error:'Chunk failed'));return;}
+              ci++;sendChunk();
+            }).withFailureHandler(reject).uploadChunk(uploadId,ci,chunk64);
+          }
+          sendChunk();
+        }).withFailureHandler(reject).startChunkedUpload(file.name,totalChunks,file.type||'application/octet-stream','');
+      });
+    });
+  }
+
   function uploadAndSave(docId){
     var pDiv=document.getElementById('editUploadProgress'),pText=document.getElementById('editProgressText'),pFill=document.getElementById('editProgressFill');
     if(pDiv)pDiv.classList.add('active');
@@ -194,12 +236,23 @@
       var file=_editNewFiles[cnt];
       if(pText)pText.textContent='อัปโหลด '+(cnt+1)+'/'+total+': '+file.name;
       if(pFill)pFill.style.width=((cnt/total)*100)+'%';
-      var reader=new FileReader();
-      reader.onload=function(e){var b64=e.target.result.split(',')[1];
-        google.script.run.withSuccessHandler(function(r){if(r&&r.success)uploaded.push({url:r.fileUrl||r.url,name:r.fileName||file.name});cnt++;if(pFill)pFill.style.width=((cnt/total)*100)+'%';next();})
-        .withFailureHandler(function(){cnt++;next();}).uploadSingleFile(b64,file.name,file.type);};
-      reader.onerror=function(){cnt++;next();};
-      reader.readAsDataURL(file);
+
+      if(file.size>EDIT_LARGE_THRESHOLD){
+        // ⭐ ไฟล์ใหญ่ → ใช้ Chunked Upload
+        if(pText)pText.textContent='อัปโหลด '+(cnt+1)+'/'+total+': '+file.name+' (chunked)';
+        _uploadChunkedEdit(file).then(function(r){
+          if(r&&r.success)uploaded.push({url:r.fileUrl||r.url,name:r.fileName||file.name});
+          cnt++;if(pFill)pFill.style.width=((cnt/total)*100)+'%';next();
+        }).catch(function(err){console.error('❌ Chunked edit upload failed:',file.name,err);cnt++;next();});
+      } else {
+        // ไฟล์เล็ก → ใช้วิธีเดิม
+        var reader=new FileReader();
+        reader.onload=function(e){var b64=e.target.result.split(',')[1];
+          google.script.run.withSuccessHandler(function(r){if(r&&r.success)uploaded.push({url:r.fileUrl||r.url,name:r.fileName||file.name});cnt++;if(pFill)pFill.style.width=((cnt/total)*100)+'%';next();})
+          .withFailureHandler(function(){cnt++;next();}).uploadSingleFile(b64,file.name,file.type);};
+        reader.onerror=function(){cnt++;next();};
+        reader.readAsDataURL(file);
+      }
     }
     next();
   }

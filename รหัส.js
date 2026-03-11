@@ -901,6 +901,235 @@ function uploadMultipleFilesFromUrls(data) {
 }
 
 // ===================================================================
+// 📤 CHUNKED FILE UPLOAD (สำหรับไฟล์ขนาดใหญ่)
+// ===================================================================
+
+/**
+ * ⭐ เริ่มต้น Chunked Upload - สร้าง temp folder สำหรับเก็บ chunks
+ * @param {string} fileName - ชื่อไฟล์
+ * @param {number} totalChunks - จำนวน chunks ทั้งหมด
+ * @param {string} mimeType - MIME Type
+ * @param {string} category - หมวดหมู่
+ * @returns {Object} - {success, uploadId, tempFolderId}
+ */
+function startChunkedUpload(fileName, totalChunks, mimeType, category) {
+  try {
+    Logger.log('📤 startChunkedUpload: ' + fileName + ' (' + totalChunks + ' chunks)');
+    
+    var config = getSchoolConfig();
+    var rootFolder;
+    try {
+      rootFolder = DriveApp.getFolderById(config.folderId);
+    } catch (e) {
+      rootFolder = DriveApp.getRootFolder();
+    }
+    
+    // สร้าง temp folder สำหรับเก็บ chunks
+    var uploadId = 'chunk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    var tempFolder = rootFolder.createFolder('_temp_' + uploadId);
+    
+    // เก็บ metadata ใน ScriptProperties
+    var meta = {
+      uploadId: uploadId,
+      fileName: fileName,
+      mimeType: mimeType || 'application/octet-stream',
+      category: category || 'งานทั่วไป',
+      totalChunks: totalChunks,
+      receivedChunks: 0,
+      tempFolderId: tempFolder.getId(),
+      createdAt: Date.now()
+    };
+    
+    PropertiesService.getScriptProperties().setProperty(
+      'UPLOAD_' + uploadId, 
+      JSON.stringify(meta)
+    );
+    
+    return {
+      success: true,
+      uploadId: uploadId,
+      tempFolderId: tempFolder.getId()
+    };
+  } catch (error) {
+    Logger.log('❌ startChunkedUpload Error: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * ⭐ อัปโหลด chunk เดี่ยว
+ * @param {string} uploadId - ID จาก startChunkedUpload
+ * @param {number} chunkIndex - ลำดับ chunk (0-based)
+ * @param {string} chunkData - Base64 data ของ chunk นี้
+ * @returns {Object} - {success, chunkIndex, receivedChunks}
+ */
+function uploadChunk(uploadId, chunkIndex, chunkData) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var metaStr = props.getProperty('UPLOAD_' + uploadId);
+    
+    if (!metaStr) {
+      return { success: false, error: 'Upload session not found: ' + uploadId };
+    }
+    
+    var meta = JSON.parse(metaStr);
+    var tempFolder = DriveApp.getFolderById(meta.tempFolderId);
+    
+    // ลบ data URL prefix ถ้ามี
+    var base64 = chunkData;
+    if (base64.indexOf(',') > -1) {
+      base64 = base64.split(',')[1];
+    }
+    
+    // บันทึก chunk เป็นไฟล์ใน temp folder (ใช้ชื่อที่ sort ได้)
+    var chunkName = 'chunk_' + String(chunkIndex).padStart(6, '0');
+    var chunkBlob = Utilities.newBlob(
+      Utilities.base64Decode(base64),
+      'application/octet-stream',
+      chunkName
+    );
+    tempFolder.createFile(chunkBlob);
+    
+    // อัปเดต metadata
+    meta.receivedChunks = (meta.receivedChunks || 0) + 1;
+    props.setProperty('UPLOAD_' + uploadId, JSON.stringify(meta));
+    
+    Logger.log('📦 Chunk ' + (chunkIndex + 1) + '/' + meta.totalChunks + ' received for ' + meta.fileName);
+    
+    return {
+      success: true,
+      chunkIndex: chunkIndex,
+      receivedChunks: meta.receivedChunks,
+      totalChunks: meta.totalChunks
+    };
+  } catch (error) {
+    Logger.log('❌ uploadChunk Error: ' + error.toString());
+    return { success: false, error: error.toString(), chunkIndex: chunkIndex };
+  }
+}
+
+/**
+ * ⭐ รวม chunks เป็นไฟล์สุดท้ายและอัปโหลดไปยัง Drive
+ * @param {string} uploadId - ID จาก startChunkedUpload
+ * @returns {Object} - {success, fileUrl, fileId, fileName, mimeType, size}
+ */
+function finishChunkedUpload(uploadId) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var metaStr = props.getProperty('UPLOAD_' + uploadId);
+    
+    if (!metaStr) {
+      return { success: false, error: 'Upload session not found' };
+    }
+    
+    var meta = JSON.parse(metaStr);
+    var tempFolder = DriveApp.getFolderById(meta.tempFolderId);
+    
+    // ดึง chunk files ทั้งหมด เรียงตามชื่อ
+    var chunkFiles = [];
+    var files = tempFolder.getFiles();
+    while (files.hasNext()) {
+      chunkFiles.push(files.next());
+    }
+    
+    // เรียงลำดับตามชื่อ (chunk_000000, chunk_000001, ...)
+    chunkFiles.sort(function(a, b) {
+      return a.getName().localeCompare(b.getName());
+    });
+    
+    if (chunkFiles.length === 0) {
+      return { success: false, error: 'No chunks found' };
+    }
+    
+    // รวม bytes ทั้งหมด
+    var allBytes = [];
+    for (var i = 0; i < chunkFiles.length; i++) {
+      var chunkBytes = chunkFiles[i].getBlob().getBytes();
+      for (var j = 0; j < chunkBytes.length; j++) {
+        allBytes.push(chunkBytes[j]);
+      }
+    }
+    
+    // สร้างไฟล์สุดท้าย
+    var finalBlob = Utilities.newBlob(
+      allBytes,
+      meta.mimeType,
+      meta.fileName
+    );
+    
+    var destFolder = getOrCreateCategoryFolder(meta.category);
+    var finalFile = destFolder.createFile(finalBlob);
+    finalFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // ลบ temp folder และ chunks
+    tempFolder.setTrashed(true);
+    
+    // ลบ metadata
+    props.deleteProperty('UPLOAD_' + uploadId);
+    
+    Logger.log('✅ Chunked upload complete: ' + meta.fileName + ' (' + allBytes.length + ' bytes)');
+    
+    return {
+      success: true,
+      fileUrl: finalFile.getUrl(),
+      fileId: finalFile.getId(),
+      fileName: finalFile.getName(),
+      mimeType: finalFile.getMimeType(),
+      size: allBytes.length
+    };
+  } catch (error) {
+    Logger.log('❌ finishChunkedUpload Error: ' + error.toString());
+    
+    // พยายามลบ temp folder
+    try {
+      var meta2 = JSON.parse(PropertiesService.getScriptProperties().getProperty('UPLOAD_' + uploadId) || '{}');
+      if (meta2.tempFolderId) {
+        DriveApp.getFolderById(meta2.tempFolderId).setTrashed(true);
+      }
+      PropertiesService.getScriptProperties().deleteProperty('UPLOAD_' + uploadId);
+    } catch (e) {}
+    
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * ⭐ ลบ temp upload ที่ค้างอยู่ (เรียกใช้เพื่อ cleanup)
+ */
+function cleanupStaleUploads() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var allProps = props.getProperties();
+    var now = Date.now();
+    var cleaned = 0;
+    
+    for (var key in allProps) {
+      if (key.indexOf('UPLOAD_') === 0) {
+        try {
+          var meta = JSON.parse(allProps[key]);
+          // ลบ upload ที่เก่ากว่า 1 ชั่วโมง
+          if (now - meta.createdAt > 3600000) {
+            if (meta.tempFolderId) {
+              try { DriveApp.getFolderById(meta.tempFolderId).setTrashed(true); } catch(e) {}
+            }
+            props.deleteProperty(key);
+            cleaned++;
+          }
+        } catch (e) {
+          props.deleteProperty(key);
+          cleaned++;
+        }
+      }
+    }
+    
+    Logger.log('🧹 Cleaned up ' + cleaned + ' stale uploads');
+    return { success: true, cleaned: cleaned };
+  } catch (error) {
+    return { success: false, error: error.toString() };
+  }
+}
+
+// ===================================================================
 // 📤 SINGLE FILE UPLOAD (สำหรับ Batch Upload)
 // ===================================================================
 

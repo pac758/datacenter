@@ -4112,13 +4112,45 @@ function handleFileUploadWithPath(documentData) {
   const failedFiles = [];
   const successFiles = [];
   
-  // ⭐ ฟังก์ชันอัปโหลดไฟล์เดี่ยวพร้อม Path
+  // ⭐ ฟังก์ชันอัปโหลดไฟล์เดี่ยวพร้อม Path (รองรับ chunked upload สำหรับไฟล์ใหญ่)
   async function uploadSingleFileWithPath(file) {
     try {
-      const fileData = await readFileAsDataURL(file);
-      
-      // ⭐ ดึง relativePath จาก file object
       const relativePath = file._relativePath || file.webkitRelativePath || '';
+      const isLarge = file.size > LARGE_FILE_THRESHOLD;
+      
+      if (isLarge) {
+        // ⭐ ไฟล์ใหญ่ → ใช้ Chunked Upload
+        console.log(`📦 ไฟล์ใหญ่+Path (${(file.size/1024/1024).toFixed(1)} MB): ${file.name} → Chunked Upload`);
+        
+        const result = await uploadFileChunked(
+          file,
+          documentData.category,
+          (chunkDone, chunkTotal) => {
+            const percent = Math.round((completedCount / selectedFiles.length) * 100);
+            showProgressOnModal(
+              `อัปโหลด ${file.name} (chunk ${chunkDone}/${chunkTotal})...`,
+              percent,
+              `เสร็จแล้ว ${completedCount}/${selectedFiles.length} ไฟล์`
+            );
+          }
+        );
+        
+        completedCount++;
+        const percent = Math.round((completedCount / selectedFiles.length) * 100);
+        showProgressOnModal('กำลังอัปโหลดไฟล์...', percent, `เสร็จแล้ว ${completedCount}/${selectedFiles.length} ไฟล์`);
+        
+        return {
+          name: file.name,
+          url: result.fileUrl,
+          fileUrl: result.fileUrl,
+          path: relativePath,
+          size: file.size,
+          mimeType: result.mimeType
+        };
+      }
+      
+      // ไฟล์เล็ก → ใช้วิธีเดิม
+      const fileData = await readFileAsDataURL(file);
       
       return new Promise((resolve, reject) => {
         google.script.run
@@ -4283,27 +4315,152 @@ function handleFileUpload(documentData) {
   }
 }
 
-// ฟังก์ชันอัปโหลดไฟล์ปกติ
+// ===================================================================
+// ⭐ CHUNKED UPLOAD - แก้ปัญหา HTTP 413 (Payload Too Large)
+// ===================================================================
+
+// ขนาด chunk สำหรับ base64 (~5MB raw = ~6.7MB base64, ปลอดภัยต่อลิมิต google.script.run)
+const CHUNK_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per chunk (raw bytes)
+const LARGE_FILE_THRESHOLD = 20 * 1024 * 1024; // ไฟล์ > 20MB ใช้ chunked upload
+
+/**
+ * ⭐ อ่านไฟล์เป็น ArrayBuffer
+ */
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * ⭐ แปลง ArrayBuffer เป็น Base64 string
+ */
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * ⭐ อัปโหลดไฟล์ใหญ่แบบ Chunked
+ */
+async function uploadFileChunked(file, category, onProgress) {
+  const arrayBuffer = await readFileAsArrayBuffer(file);
+  const totalBytes = arrayBuffer.byteLength;
+  const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE_BYTES);
+  
+  console.log(`📦 Chunked upload: ${file.name} (${(totalBytes/1024/1024).toFixed(2)} MB, ${totalChunks} chunks)`);
+  
+  // 1) เริ่ม session
+  const startResult = await new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .startChunkedUpload(file.name, totalChunks, file.type || 'application/octet-stream', category);
+  });
+  
+  if (!startResult.success) {
+    throw new Error('Start chunked upload failed: ' + (startResult.error || 'Unknown'));
+  }
+  
+  const uploadId = startResult.uploadId;
+  
+  // 2) ส่ง chunks ทีละชิ้น (sequential เพื่อความเสถียร)
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE_BYTES;
+    const end = Math.min(start + CHUNK_SIZE_BYTES, totalBytes);
+    const chunkBuffer = arrayBuffer.slice(start, end);
+    const chunkBase64 = arrayBufferToBase64(chunkBuffer);
+    
+    const chunkResult = await new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .uploadChunk(uploadId, i, chunkBase64);
+    });
+    
+    if (!chunkResult.success) {
+      throw new Error('Chunk ' + i + ' failed: ' + (chunkResult.error || 'Unknown'));
+    }
+    
+    if (onProgress) {
+      onProgress(i + 1, totalChunks);
+    }
+    
+    console.log(`📦 Chunk ${i + 1}/${totalChunks} sent`);
+  }
+  
+  // 3) รวม chunks เป็นไฟล์สุดท้าย
+  const finishResult = await new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .finishChunkedUpload(uploadId);
+  });
+  
+  if (!finishResult.success) {
+    throw new Error('Finish chunked upload failed: ' + (finishResult.error || 'Unknown'));
+  }
+  
+  console.log(`✅ Chunked upload complete: ${file.name}`);
+  return finishResult;
+}
+
+// ฟังก์ชันอัปโหลดไฟล์ปกติ (รองรับ chunked upload สำหรับไฟล์ใหญ่)
 async function uploadRegularFiles(documentData) {
   window.__uploadStartTime = Date.now();
   showProgressOnModal('กำลังเตรียมอัปโหลด...', 0, `${selectedFiles.length} ไฟล์`);
   
-  const MAX_CONCURRENT = 5;
+  const MAX_CONCURRENT = 3;
   let completedCount = 0;
   const successFiles = [];
   const failedFiles = [];
+  const totalFiles = selectedFiles.length;
   
-  async function uploadSingleFile(file) {
-    try {
+  // ⭐ ฟังก์ชันอัปโหลดไฟล์เดี่ยว (เลือกวิธีตามขนาด)
+  async function uploadOneFile(file) {
+    const isLarge = file.size > LARGE_FILE_THRESHOLD;
+    
+    if (isLarge) {
+      // ⭐ ไฟล์ใหญ่ → ใช้ Chunked Upload
+      console.log(`📦 ไฟล์ใหญ่ (${(file.size/1024/1024).toFixed(1)} MB): ${file.name} → ใช้ Chunked Upload`);
+      
+      const result = await uploadFileChunked(
+        file, 
+        documentData.category,
+        (chunkDone, chunkTotal) => {
+          const fileProgress = completedCount / totalFiles;
+          const chunkProgress = (chunkDone / chunkTotal) / totalFiles;
+          const totalPercent = Math.round((fileProgress + chunkProgress) * 100);
+          showProgressOnModal(
+            `อัปโหลด ${file.name} (chunk ${chunkDone}/${chunkTotal})...`, 
+            totalPercent, 
+            `${completedCount}/${totalFiles} ไฟล์`
+          );
+        }
+      );
+      
+      return {
+        name: file.name,
+        url: result.fileUrl,
+        fileUrl: result.fileUrl
+      };
+      
+    } else {
+      // ไฟล์เล็ก → ใช้ Single Upload เดิม
       const fileData = await readFileAsDataURL(file);
       
       return new Promise((resolve, reject) => {
         google.script.run
           .withSuccessHandler(result => {
             if (result.success) {
-              completedCount++;
-              const percent = Math.round((completedCount / selectedFiles.length) * 100);
-              showProgressOnModal('กำลังอัปโหลด...', percent, `${completedCount}/${selectedFiles.length}`);
               resolve({
                 name: file.name,
                 url: result.fileUrl,
@@ -4316,41 +4473,62 @@ async function uploadRegularFiles(documentData) {
           .withFailureHandler(reject)
           .uploadSingleFile(fileData, file.name, file.type, documentData.category);
       });
-    } catch (error) {
-      throw error;
     }
   }
   
-  // Upload แบบ batch
+  // Upload แบบ batch (ไฟล์ใหญ่จะ sequential อัตโนมัติ)
   const queue = [...selectedFiles];
   const executing = [];
   
   for (const file of queue) {
-    const promise = uploadSingleFile(file)
+    const isLarge = file.size > LARGE_FILE_THRESHOLD;
+    
+    // ไฟล์ใหญ่ → รอให้ทุกอย่างเสร็จก่อน แล้วอัปโหลด sequential
+    if (isLarge && executing.length > 0) {
+      await Promise.all(executing);
+      executing.length = 0;
+    }
+    
+    const promise = uploadOneFile(file)
       .then(result => {
+        completedCount++;
+        const percent = Math.round((completedCount / totalFiles) * 100);
+        showProgressOnModal('กำลังอัปโหลด...', percent, `${completedCount}/${totalFiles} ไฟล์`);
         successFiles.push(result);
         return result;
       })
       .catch(error => {
-        failedFiles.push({ name: file.name, error: error.message });
+        completedCount++;
+        failedFiles.push({ name: file.name, error: error.message || String(error) });
         console.error(`❌ ${file.name}:`, error);
         return null;
       })
       .finally(() => {
-        executing.splice(executing.indexOf(promise), 1);
+        const idx = executing.indexOf(promise);
+        if (idx > -1) executing.splice(idx, 1);
       });
     
-    executing.push(promise);
-    
-    if (executing.length >= MAX_CONCURRENT) {
-      await Promise.race(executing);
+    if (isLarge) {
+      // ไฟล์ใหญ่ → รอให้เสร็จก่อนไปไฟล์ถัดไป
+      await promise;
+    } else {
+      executing.push(promise);
+      if (executing.length >= MAX_CONCURRENT) {
+        await Promise.race(executing);
+      }
     }
   }
   
-  await Promise.all(executing);
+  // รอ batch สุดท้าย
+  if (executing.length > 0) {
+    await Promise.all(executing);
+  }
   
   // แสดงผลลัพธ์
   if (successFiles.length > 0) {
+    if (failedFiles.length > 0) {
+      console.warn(`⚠️ สำเร็จ ${successFiles.length}, ล้มเหลว ${failedFiles.length}`);
+    }
     documentData.file_objects = successFiles;
     addDocumentToSheet(documentData);
   } else {
