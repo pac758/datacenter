@@ -1033,41 +1033,98 @@ function finishChunkedUpload(uploadId) {
       return { success: false, error: 'No chunks found' };
     }
     
-    // ⭐ รวม chunks แบบ efficient ด้วย Blob concatenation (ไม่ loop byte-by-byte)
-    var blobs = [];
+    // ⭐ คำนวณขนาดรวม
+    var totalSize = 0;
+    var chunkSizes = [];
     for (var i = 0; i < chunkFiles.length; i++) {
-      blobs.push(chunkFiles[i].getBlob());
+      var sz = chunkFiles[i].getSize();
+      chunkSizes.push(sz);
+      totalSize += sz;
     }
     
-    // ใช้ concat bytes ทีเดียว แทน push ทีละ byte
-    var allByteArrays = blobs.map(function(b) { return b.getBytes(); });
-    var totalLen = allByteArrays.reduce(function(sum, a) { return sum + a.length; }, 0);
-    var allBytes = [];
-    // ใช้ Array.prototype.push.apply ทีละ chunk (เร็วกว่า push ทีละ byte มาก)
-    for (var k = 0; k < allByteArrays.length; k++) {
-      Array.prototype.push.apply(allBytes, allByteArrays[k]);
-    }
-    
-    // สร้างไฟล์สุดท้าย
-    var finalBlob = Utilities.newBlob(
-      allBytes,
-      meta.mimeType,
-      meta.fileName
-    );
-    
-    Logger.log('📦 Combined ' + chunkFiles.length + ' chunks → ' + totalLen + ' bytes');
+    Logger.log('📦 Assembling ' + chunkFiles.length + ' chunks → ' + totalSize + ' bytes via Drive API');
     
     var destFolder = getOrCreateCategoryFolder(meta.category);
-    var finalFile = destFolder.createFile(finalBlob);
+    var mimeType = meta.mimeType || 'application/octet-stream';
+    var token = ScriptApp.getOAuthToken();
+    
+    // ⭐ Step 1: เริ่ม Resumable Upload Session กับ Drive REST API
+    var initRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+      {
+        method: 'post',
+        contentType: 'application/json',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'X-Upload-Content-Type': mimeType,
+          'X-Upload-Content-Length': String(totalSize)
+        },
+        payload: JSON.stringify({
+          name: meta.fileName,
+          parents: [destFolder.getId()]
+        }),
+        muteHttpExceptions: true
+      }
+    );
+    
+    if (initRes.getResponseCode() !== 200) {
+      throw new Error('Drive API init failed (HTTP ' + initRes.getResponseCode() + '): ' + initRes.getContentText());
+    }
+    
+    // ดึง Upload URL จาก Location header
+    var resHeaders = initRes.getHeaders();
+    var uploadUrl = null;
+    for (var hk in resHeaders) {
+      if (hk.toLowerCase() === 'location') {
+        uploadUrl = resHeaders[hk];
+        break;
+      }
+    }
+    if (!uploadUrl) throw new Error('No upload URL from Drive API');
+    
+    // ⭐ Step 2: ส่ง chunk ทีละอันไป Drive (ไม่ต้องรวม bytes ใน memory!)
+    var offset = 0;
+    var lastRes = null;
+    
+    for (var j = 0; j < chunkFiles.length; j++) {
+      var chunkBytes = chunkFiles[j].getBlob().getBytes();
+      var chunkLen = chunkBytes.length;
+      var rangeEnd = offset + chunkLen - 1;
+      
+      var putRes = UrlFetchApp.fetch(uploadUrl, {
+        method: 'put',
+        headers: {
+          'Content-Range': 'bytes ' + offset + '-' + rangeEnd + '/' + totalSize
+        },
+        payload: chunkBytes,
+        muteHttpExceptions: true
+      });
+      
+      var httpCode = putRes.getResponseCode();
+      Logger.log('� Drive chunk ' + (j + 1) + '/' + chunkFiles.length + ' → HTTP ' + httpCode + ' (' + chunkLen + ' bytes)');
+      
+      if (httpCode === 200 || httpCode === 201) {
+        lastRes = putRes;
+      } else if (httpCode !== 308) {
+        throw new Error('Drive upload HTTP ' + httpCode + ': ' + putRes.getContentText());
+      }
+      
+      offset += chunkLen;
+      chunkBytes = null; // ช่วย GC คืน memory
+    }
+    
+    if (!lastRes) throw new Error('Drive upload did not complete');
+    
+    // ⭐ Step 3: ดึงข้อมูลไฟล์ที่สร้างเสร็จ
+    var fileInfo = JSON.parse(lastRes.getContentText());
+    var finalFile = DriveApp.getFileById(fileInfo.id);
     finalFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
-    // ลบ temp folder และ chunks
+    // ลบ temp folder และ metadata
     tempFolder.setTrashed(true);
-    
-    // ลบ metadata
     props.deleteProperty('UPLOAD_' + uploadId);
     
-    Logger.log('✅ Chunked upload complete: ' + meta.fileName + ' (' + allBytes.length + ' bytes)');
+    Logger.log('✅ Chunked upload complete: ' + meta.fileName + ' (' + totalSize + ' bytes)');
     
     return {
       success: true,
@@ -1075,7 +1132,7 @@ function finishChunkedUpload(uploadId) {
       fileId: finalFile.getId(),
       fileName: finalFile.getName(),
       mimeType: finalFile.getMimeType(),
-      size: allBytes.length
+      size: totalSize
     };
   } catch (error) {
     Logger.log('❌ finishChunkedUpload Error: ' + error.toString());
