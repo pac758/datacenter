@@ -4262,7 +4262,8 @@ function handleFileUploadWithPath(documentData) {
         
       } else if (failedFiles.length > 0) {
         // ทุกไฟล์ล้มเหลว
-        showErrorOnFooter(`อัปโหลดล้มเหลวทั้งหมด ${failedFiles.length} ไฟล์`);
+        const errDetails = failedFiles.map(f => `${f.name}: ${f.error}`).join('\n');
+        showErrorOnFooter(`อัปโหลดล้มเหลว ${failedFiles.length} ไฟล์`, errDetails);
         enableSubmitButton();
         
       } else {
@@ -4536,7 +4537,11 @@ async function uploadRegularFiles(documentData) {
     documentData.file_objects = successFiles;
     addDocumentToSheet(documentData);
   } else {
-    showErrorOnFooter('อัปโหลดล้มเหลวทั้งหมด');
+    const errorDetails = failedFiles.map(f => `${f.name}: ${f.error}`).join('\n');
+    showErrorOnFooter(
+      `อัปโหลดล้มเหลว ${failedFiles.length} ไฟล์`,
+      errorDetails
+    );
     enableSubmitButton();
   }
 }
@@ -5192,6 +5197,9 @@ function openModal(modalId) {
   // ✅ เปิด Drag & Drop เมื่อเปิด Modal เพิ่มเอกสาร
   if (modalId === 'addModal') {
     setTimeout(initDragAndDrop, 100);
+    // ⭐ เก็บ footer HTML ต้นฉบับสำหรับ restore หลัง error
+    const footer = modal.querySelector('.modal-footer');
+    if (footer) window._originalFooterHTML = footer.innerHTML;
   }
 }
 
@@ -5445,51 +5453,59 @@ function showProgressOnModal(message = 'กำลังประมวลผล.
 /**
  * แสดงข้อผิดพลาดที่ Modal Footer
  */
-function showErrorOnFooter(message = 'เกิดข้อผิดพลาด') {
+function showErrorOnFooter(message = 'เกิดข้อผิดพลาด', details = '') {
   const modalFooter = document.querySelector('#addModal .modal-footer');
   
   if (!modalFooter) return;
+  
+  // เก็บ original footer HTML เพื่อ restore ตอน retry
+  if (!window._originalFooterHTML) {
+    window._originalFooterHTML = modalFooter.innerHTML;
+  }
+  
+  const detailsHtml = details ? `
+    <details style="text-align:left; margin: 10px 0; max-height:120px; overflow:auto;">
+      <summary style="cursor:pointer; font-size:13px; opacity:0.9;">ดูรายละเอียด</summary>
+      <pre style="font-size:11px; white-space:pre-wrap; margin-top:6px; padding:8px; background:rgba(0,0,0,0.2); border-radius:6px;">${escapeHtml(details)}</pre>
+    </details>
+  ` : '';
   
   modalFooter.innerHTML = `
     <div style="
       width: 100%;
       text-align: center;
-      padding: 24px 20px;
+      padding: 20px;
       background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
       border-radius: 12px;
       color: white;
     ">
-      <!-- Error Icon -->
-      <div style="margin-bottom: 12px;">
-        <i class="fas fa-exclamation-circle" style="font-size: 48px;"></i>
+      <div style="margin-bottom: 10px;">
+        <i class="fas fa-exclamation-circle" style="font-size: 40px;"></i>
       </div>
-      
-      <!-- Message -->
-      <div style="
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 16px;
-        line-height: 1.5;
-      ">${message}</div>
-      
-      <!-- Close Button -->
-      <button onclick="closeModal('addModal'); resetAddForm();" style="
-        padding: 12px 32px;
-        background: white;
-        color: #ef4444;
-        border: none;
-        border-radius: 10px;
-        font-size: 16px;
-        font-weight: 600;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-      " onmouseover="this.style.transform='translateY(-2px)'" 
-         onmouseout="this.style.transform='translateY(0)'">
-        <i class="fas fa-times-circle"></i> ปิด
-      </button>
+      <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.4;">${message}</div>
+      ${detailsHtml}
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">
+        <button onclick="restoreFooterAndRetry();" style="
+          padding: 10px 24px; background: white; color: #059669;
+          border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+          cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        "><i class="fas fa-redo"></i> ลองใหม่</button>
+        <button onclick="closeModal('addModal'); resetAddForm();" style="
+          padding: 10px 24px; background: rgba(255,255,255,0.2); color: white;
+          border: 1px solid rgba(255,255,255,0.4); border-radius: 10px; font-size: 15px;
+          font-weight: 600; cursor: pointer;
+        "><i class="fas fa-times"></i> ปิด</button>
+      </div>
     </div>
   `;
+}
+
+function restoreFooterAndRetry() {
+  const modalFooter = document.querySelector('#addModal .modal-footer');
+  if (modalFooter && window._originalFooterHTML) {
+    modalFooter.innerHTML = window._originalFooterHTML;
+  }
+  enableSubmitButton();
 }
 
 /**
