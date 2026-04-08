@@ -147,6 +147,20 @@ function dbLoadConfig() {
     .withSuccessHandler(function(cfg) {
       dbApplyConfig(cfg || {});
       dbSwitchView('dashboard');
+
+      // ✅ [NEW] Setup Wizard: ถ้ายังไม่ได้ตั้งค่า ID ให้เปิด Admin ทันที
+      if (!cfg || !cfg.spreadsheetId) {
+        Swal.fire({
+          title: 'ยินดีต้อนรับสู่ Data Center',
+          text: 'ดูเหมือนคุณจะยังไม่ได้ตั้งค่าการเชื่อมต่อฐานข้อมูล กรุณาตั้งค่าเพื่อเริ่มใช้งาน',
+          icon: 'info',
+          confirmButtonText: 'ตั้งค่าเดี๋ยวนี้',
+          confirmButtonColor: '#6366f1',
+          allowOutsideClick: false
+        }).then(function(res) {
+          if (res.isConfirmed) openAdminModal();
+        });
+      }
     })
     .withFailureHandler(function() {
       dbSwitchView('dashboard');
@@ -156,6 +170,17 @@ function dbLoadConfig() {
 
 function dbApplyConfig(cfg) {
   if (!cfg) return;
+  
+  // ✅ Apply Dynamic Theme Colors
+  if (cfg.primaryColor) {
+    document.documentElement.style.setProperty('--db-primary', cfg.primaryColor);
+    // สร้างสีจางสำหรับ hover/active
+    document.documentElement.style.setProperty('--db-sidebar-active', cfg.primaryColor + '44'); 
+  }
+  if (cfg.secondaryColor) {
+    document.documentElement.style.setProperty('--db-primary2', cfg.secondaryColor);
+  }
+  
   // Brand
   var bn = document.getElementById('dbBrandName');
   var bs = document.getElementById('dbBrandSub');

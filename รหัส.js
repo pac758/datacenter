@@ -6,18 +6,19 @@
 // ===================================================================
 
 const DEFAULT_CONFIG = {
-  schoolName: 'โรงเรียนบ้านโคกยางหนองถนน',
-  schoolShort: 'บ้านโคกยางฯ',
-  schoolAddress: 'ต.ก้านเหลือง อ.นางรอง จ.บุรีรัมย์',
+  schoolName: 'ชื่อโรงเรียนของคุณ',
+  schoolShort: 'ชื่อย่อ',
+  schoolAddress: 'ที่อยู่โรงเรียน',
   adminEmail: 'admin@school.ac.th',
-  spreadsheetId: '19Dr60-P9DgtaAc_3tJIABuNf_GVEttXHQYbDMnl7PVs',
+  spreadsheetId: '', // ปล่อยว่างไว้เพื่อให้ระบบบังคับตั้งค่าครั้งแรก
   sheetName: 'การตอบแบบฟอร์ม 1',
-  folderId: '1SkiPR0RFqBAyQohk3hEAY2TuxUxRDuNC',
+  folderId: '', // ปล่อยว่างไว้เพื่อให้ระบบบังคับตั้งค่าครั้งแรก
   googleFormUrl: '',
-  primaryColor: '#667eea',
-  secondaryColor: '#764ba2',
-  version: '15.0',
-  credit: '© 2568 @pthk',
+  lineNotifyToken: '', // เพิ่มช่องสำหรับ LINE Notify ของแต่ละโรงเรียน
+  primaryColor: '#6366f1', // สีหลัก (Indigo)
+  secondaryColor: '#4f46e5',
+  version: '16.0',
+  credit: '© 2568 @pthk — RKT School Data Center',
   logoFileId: ''
 };
 
@@ -280,9 +281,19 @@ function getSchoolConfig() {
         config[key] = (val !== undefined && val !== null) ? String(val) : '';
       }
     }
+
+    // ✅ เพิ่ม logoUrl เข้าไปในออบเจกต์ที่ส่งกลับ
+    if (config.logoFileId) {
+      config.logoUrl = "https://lh3.googleusercontent.com/d/" + config.logoFileId;
+    } else {
+      config.logoUrl = "";
+    }
+
     return config;
   } catch (e) {
-    return DEFAULT_CONFIG;
+    var fallback = Object.assign({}, DEFAULT_CONFIG);
+    fallback.logoUrl = fallback.logoFileId ? "https://lh3.googleusercontent.com/d/" + fallback.logoFileId : "";
+    return fallback;
   }
 }
 
