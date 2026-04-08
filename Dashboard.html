@@ -1,0 +1,351 @@
+<!-- ===== Dashboard.html — Data Center Dashboard v1.0 ===== -->
+<!-- วิธีใช้: เพิ่ม <?!= include('Dashboard') ?> ใน index.html -->
+
+<!-- Mobile Overlay -->
+<div class="db-overlay" id="dbOverlay" onclick="dbCloseSidebar()"></div>
+
+<!-- ===== APP SHELL ===== -->
+<div class="db-shell">
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <aside class="db-sidebar" id="dbSidebar">
+
+    <div class="db-sidebar-brand">
+      <div id="dbBrandLogo" class="db-brand-logo">🏫</div>
+      <div class="db-brand-name" id="dbBrandName">Data Center</div>
+      <div class="db-brand-sub" id="dbBrandSub">ร.ร.บ้านโคกยางหนองถนน</div>
+    </div>
+
+    <button class="db-sidebar-add-btn" onclick="openModal('addModal')">
+      <i class="fas fa-plus"></i>
+      เพิ่มเอกสาร
+    </button>
+
+    <div class="db-sidebar-scroll">
+      <!-- เมนูหลัก -->
+      <div class="db-sidebar-section">
+        <div class="db-sidebar-label">เมนูหลัก</div>
+
+        <button class="db-sidebar-item" id="dbNavDashboard" onclick="dbSwitchView('dashboard')">
+          <i class="fas fa-chart-pie db-s-icon"></i>
+          Dashboard
+        </button>
+
+        <button class="db-sidebar-item" id="dbNavDocuments" onclick="dbSwitchView('documents')">
+          <i class="fas fa-folder-open db-s-icon"></i>
+          เอกสารทั้งหมด
+          <span class="db-s-badge" id="dbBadgeTotal">-</span>
+        </button>
+
+        <button class="db-sidebar-item" id="dbNavRecent" onclick="dbSwitchView('documents'); dbFilterRecent()">
+          <i class="fas fa-clock db-s-icon"></i>
+          เอกสารล่าสุด
+          <span class="db-s-badge new" id="dbBadgeToday">-</span>
+        </button>
+      </div>
+
+      <div class="db-sidebar-divider"></div>
+
+      <!-- หมวดหมู่ (สร้างจาก config) -->
+      <div class="db-sidebar-section">
+        <div class="db-sidebar-label">หมวดหมู่</div>
+        <div id="dbCategoryMenu">
+          <!-- inject by JS -->
+          <button class="db-sidebar-item" onclick="dbFilterCategory('หนังสือราชการ')">
+            <i class="fas fa-file-alt db-s-icon"></i>
+            หนังสือราชการ
+          </button>
+          <button class="db-sidebar-item" onclick="dbFilterCategory('คำสั่ง')">
+            <i class="fas fa-gavel db-s-icon"></i>
+            คำสั่ง/ประกาศ
+          </button>
+          <button class="db-sidebar-item" onclick="dbFilterCategory('บันทึกข้อความ')">
+            <i class="fas fa-file-invoice db-s-icon"></i>
+            บันทึกข้อความ
+          </button>
+          <button class="db-sidebar-item" onclick="dbFilterCategory('รายงาน')">
+            <i class="fas fa-chart-bar db-s-icon"></i>
+            รายงาน
+          </button>
+        </div>
+      </div>
+
+      <div class="db-sidebar-divider"></div>
+
+      <!-- เครื่องมือ -->
+      <div class="db-sidebar-section">
+        <div class="db-sidebar-label">เครื่องมือ</div>
+
+        <a class="db-sidebar-item" id="dbNavDrive" href="#" target="_blank" rel="noopener noreferrer">
+          <i class="fab fa-google-drive db-s-icon"></i>
+          เปิดโฟลเดอร์ Drive
+        </a>
+
+        <button class="db-sidebar-item" onclick="openGoogleForm()">
+          <i class="fab fa-google db-s-icon"></i>
+          เพิ่มผ่าน G Form
+        </button>
+
+        <button class="db-sidebar-item" onclick="openAdminModal()">
+          <i class="fas fa-cog db-s-icon"></i>
+          ตั้งค่าระบบ
+        </button>
+      </div>
+    </div><!-- /scroll -->
+
+    <!-- Footer User -->
+    <div class="db-sidebar-footer">
+      <div class="db-sidebar-user">
+        <div class="db-user-avatar" id="dbUserAvatar">A</div>
+        <div>
+          <div class="db-user-name" id="dbUserName">ผู้ดูแลระบบ</div>
+          <div class="db-user-role" id="dbUserRole">Administrator</div>
+        </div>
+        <i class="fas fa-ellipsis-v" style="margin-left:auto;color:rgba(255,255,255,0.3);font-size:12px;"></i>
+      </div>
+    </div>
+
+  </aside><!-- /db-sidebar -->
+
+  <!-- ==================== MAIN ==================== -->
+  <div class="db-main" id="dbMain">
+
+    <!-- TOPBAR -->
+    <div class="db-topbar">
+      <!-- Mobile hamburger -->
+      <button class="db-topbar-btn" id="dbMenuToggle" onclick="dbToggleSidebar()" style="display:none;">
+        <i class="fas fa-bars"></i>
+      </button>
+
+      <div class="db-topbar-title">
+        <div class="db-page-icon"><i class="fas fa-chart-pie"></i></div>
+        <span id="dbPageTitle">Dashboard</span>
+      </div>
+
+      <div class="db-topbar-search">
+        <i class="fas fa-search"></i>
+        <input type="text" id="dbTopSearch" placeholder="ค้นหาเอกสาร..." oninput="dbOnTopSearch(this.value)">
+      </div>
+
+      <div class="db-topbar-actions">
+        <div class="db-topbar-btn" id="dbNotifBtn" title="แจ้งเตือน">
+          <i class="fas fa-bell"></i>
+          <div class="db-notif-dot" id="dbNotifDot" style="display:none;"></div>
+        </div>
+        <div class="db-topbar-btn" onclick="refreshData()" title="รีเฟรชข้อมูล">
+          <i class="fas fa-sync-alt"></i>
+        </div>
+        <div class="db-topbar-btn" onclick="openSettingsModal()" title="ตั้งค่า" style="font-size:14px;">
+          <i class="fas fa-sliders-h"></i>
+        </div>
+      </div>
+    </div><!-- /topbar -->
+
+    <!-- PAGE CONTENT -->
+    <div class="db-content">
+
+      <!-- ==================== DASHBOARD VIEW ==================== -->
+      <div id="dbViewDashboard" class="active">
+
+        <!-- Header -->
+        <div class="db-page-header">
+          <div>
+            <div class="db-greeting">ภาพรวมระบบเอกสาร 📊</div>
+            <div class="db-date" id="dbDateDisplay">กำลังโหลด...</div>
+          </div>
+          <div class="db-header-actions">
+            <button class="db-btn-outline" onclick="dbExportReport()">
+              <i class="fas fa-download"></i> Export
+            </button>
+            <button class="db-btn-primary" onclick="openModal('addModal')">
+              <i class="fas fa-plus"></i> เพิ่มเอกสาร
+            </button>
+          </div>
+        </div>
+
+        <!-- STAT CARDS -->
+        <div class="db-stat-grid">
+          <div class="db-stat-card c-purple">
+            <div class="db-stat-icon"><i class="fas fa-file-alt"></i></div>
+            <div class="db-stat-value" id="dbStatTotal">
+              <div class="db-spinner" style="width:24px;height:24px;border-width:3px;"></div>
+            </div>
+            <div class="db-stat-label">เอกสารทั้งหมด</div>
+            <div class="db-stat-change up" id="dbStatTotalSub">
+              <i class="fas fa-circle-notch fa-spin" style="font-size:10px;"></i>
+            </div>
+          </div>
+          <div class="db-stat-card c-orange">
+            <div class="db-stat-icon"><i class="fas fa-calendar-day"></i></div>
+            <div class="db-stat-value" id="dbStatToday">-</div>
+            <div class="db-stat-label">เอกสารวันนี้</div>
+            <div class="db-stat-change up" id="dbStatTodaySub">-</div>
+          </div>
+          <div class="db-stat-card c-green">
+            <div class="db-stat-icon"><i class="fas fa-th-large"></i></div>
+            <div class="db-stat-value" id="dbStatCats">-</div>
+            <div class="db-stat-label">หมวดหมู่</div>
+            <div class="db-stat-change up" id="dbStatCatsSub">-</div>
+          </div>
+          <div class="db-stat-card c-blue">
+            <div class="db-stat-icon"><i class="fas fa-users"></i></div>
+            <div class="db-stat-value" id="dbStatUsers">-</div>
+            <div class="db-stat-label">ผู้ส่งเอกสาร</div>
+            <div class="db-stat-change up" id="dbStatUsersSub">-</div>
+          </div>
+        </div>
+
+        <!-- CHARTS -->
+        <div class="db-chart-grid">
+          <!-- BAR CHART -->
+          <div class="db-card">
+            <div class="db-card-header">
+              <div>
+                <div class="db-card-title">
+                  <i class="fas fa-chart-bar"></i> เอกสารรายเดือน
+                </div>
+                <div class="db-card-subtitle" id="dbChartYear">ปีงบประมาณ 2568</div>
+              </div>
+              <button class="db-card-action" onclick="dbSwitchView('documents')">ดูทั้งหมด</button>
+            </div>
+            <div class="db-card-body">
+              <div class="db-legend" id="dbBarLegend">
+                <!-- inject by JS -->
+              </div>
+              <div class="db-chart-wrap" style="height:220px;">
+                <canvas id="dbBarChart" role="img" aria-label="แผนภูมิแท่งแสดงจำนวนเอกสารรายเดือน">ข้อมูลกำลังโหลด</canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- DONUT CHART -->
+          <div class="db-card">
+            <div class="db-card-header">
+              <div>
+                <div class="db-card-title">
+                  <i class="fas fa-chart-pie"></i> ประเภทเอกสาร
+                </div>
+                <div class="db-card-subtitle">สัดส่วนทั้งหมด</div>
+              </div>
+            </div>
+            <div class="db-card-body">
+              <div class="db-chart-wrap" style="height:160px;display:flex;align-items:center;justify-content:center;">
+                <canvas id="dbDonutChart" role="img" aria-label="แผนภูมิวงกลมแสดงสัดส่วนประเภทเอกสาร">ข้อมูลกำลังโหลด</canvas>
+              </div>
+              <div class="db-donut-legend" id="dbDonutLegend">
+                <!-- inject by JS -->
+              </div>
+            </div>
+          </div>
+        </div><!-- /chart-grid -->
+
+        <!-- BOTTOM GRID -->
+        <div class="db-bottom-grid">
+
+          <!-- RECENT DOCS -->
+          <div class="db-card">
+            <div class="db-card-header">
+              <div>
+                <div class="db-card-title">
+                  <i class="fas fa-clock"></i> เอกสารล่าสุด
+                </div>
+                <div class="db-card-subtitle" id="dbRecentSub">กำลังโหลด...</div>
+              </div>
+              <button class="db-card-action" onclick="dbSwitchView('documents')">ดูทั้งหมด</button>
+            </div>
+            <div class="db-card-body" style="padding-top:8px;">
+              <table class="db-doc-table">
+                <thead>
+                  <tr>
+                    <th>ชื่อเอกสาร</th>
+                    <th>ประเภท</th>
+                    <th>ผู้ส่ง</th>
+                    <th>วันที่</th>
+                  </tr>
+                </thead>
+                <tbody id="dbRecentTable">
+                  <tr>
+                    <td colspan="4" style="text-align:center;padding:30px 0;">
+                      <div class="db-spinner" style="margin:0 auto 10px;"></div>
+                      <div style="color:#9ca3af;font-size:13px;">กำลังโหลดข้อมูล...</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- RIGHT PANEL -->
+          <div style="display:flex;flex-direction:column;gap:16px;">
+
+            <!-- QUICK ACTIONS -->
+            <div class="db-card">
+              <div class="db-card-header" style="padding-bottom:12px;">
+                <div class="db-card-title"><i class="fas fa-bolt"></i> Quick Actions</div>
+              </div>
+              <div class="db-card-body" style="padding-top:0;">
+                <div class="db-quick-actions">
+                  <div class="db-quick-action" onclick="openModal('addModal')">
+                    <div class="db-qa-icon purple"><i class="fas fa-plus"></i></div>
+                    <div class="db-qa-text">
+                      <div class="db-qa-title">เพิ่มเอกสารใหม่</div>
+                      <div class="db-qa-sub">อัปโหลดไฟล์หรือโฟลเดอร์</div>
+                    </div>
+                    <i class="fas fa-chevron-right db-qa-arrow"></i>
+                  </div>
+                  <div class="db-quick-action" onclick="openGoogleForm()">
+                    <div class="db-qa-icon orange"><i class="fab fa-google"></i></div>
+                    <div class="db-qa-text">
+                      <div class="db-qa-title">เพิ่มผ่าน G Form</div>
+                      <div class="db-qa-sub">ส่งแบบฟอร์มออนไลน์</div>
+                    </div>
+                    <i class="fas fa-chevron-right db-qa-arrow"></i>
+                  </div>
+                  <div class="db-quick-action" onclick="dbExportReport()">
+                    <div class="db-qa-icon green"><i class="fas fa-download"></i></div>
+                    <div class="db-qa-text">
+                      <div class="db-qa-title">Export รายงาน</div>
+                      <div class="db-qa-sub">ส่งออก Excel / PDF</div>
+                    </div>
+                    <i class="fas fa-chevron-right db-qa-arrow"></i>
+                  </div>
+                  <div class="db-quick-action" id="dbDriveLink">
+                    <div class="db-qa-icon blue"><i class="fab fa-google-drive"></i></div>
+                    <div class="db-qa-text">
+                      <div class="db-qa-title">เปิด Google Drive</div>
+                      <div class="db-qa-sub">จัดการไฟล์บน Drive</div>
+                    </div>
+                    <i class="fas fa-chevron-right db-qa-arrow"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PROGRESS BY CATEGORY -->
+            <div class="db-card">
+              <div class="db-card-header" style="padding-bottom:12px;">
+                <div class="db-card-title">
+                  <i class="fas fa-layer-group"></i> สัดส่วนตามหมวดหมู่
+                </div>
+              </div>
+              <div class="db-card-body" style="padding-top:0;">
+                <div class="db-progress-section" id="dbProgressSection">
+                  <div style="text-align:center;padding:20px 0;">
+                    <div class="db-spinner" style="margin:0 auto 10px;width:30px;height:30px;border-width:3px;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div><!-- /bottom-grid -->
+
+      </div><!-- /dbViewDashboard -->
+
+      <!-- ==================== DOCUMENTS VIEW ==================== -->
+      <!-- หมายเหตุ: ไม่มีอะไรที่นี่ — ส่วน document list เดิม (app-main) ยังทำงานปกติ -->
+      <!-- dbSwitchView('documents') จะซ่อน dashboard และแสดง app-main เดิม -->
+
+    </div><!-- /db-content -->
+  </div><!-- /db-main -->
+</div><!-- /db-shell -->

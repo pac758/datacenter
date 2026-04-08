@@ -1,0 +1,464 @@
+<script>
+/* ===== DashboardScript.html — Data Center Dashboard v1.0 ===== */
+
+// ---- State ----
+var dbCurrentView = 'dashboard';
+var dbChartBar = null;
+var dbChartDonut = null;
+var dbDashboardLoaded = false;
+var dbColors = ['#667eea','#ff7043','#43a047','#039be5','#ab47bc','#26a69a'];
+var dbTagClasses = { 'หนังสือราชการ':'orange', 'คำสั่ง':'blue', 'ประกาศ':'blue', 'บันทึกข้อความ':'gray', 'รายงาน':'purple', 'อื่นๆ':'green' };
+
+// ---- Init ----
+document.addEventListener('DOMContentLoaded', function() {
+  dbSetDate();
+  dbCheckMobile();
+  dbLoadConfig();
+  // Dashboard loads after config
+  window.addEventListener('resize', dbCheckMobile);
+});
+
+// ---- Date ----
+function dbSetDate() {
+  var d = new Date();
+  var months = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  var days = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  var thYear = d.getFullYear() + 543;
+  var text = 'วัน' + days[d.getDay()] + 'ที่ ' + d.getDate() + ' ' + months[d.getMonth()] + ' พ.ศ. ' + thYear;
+  var el = document.getElementById('dbDateDisplay');
+  if (el) el.textContent = text;
+  // Chart year label
+  var cy = document.getElementById('dbChartYear');
+  if (cy) cy.textContent = 'ปีงบประมาณ ' + thYear;
+}
+
+// ---- Mobile ----
+function dbCheckMobile() {
+  var w = window.innerWidth;
+  var toggle = document.getElementById('dbMenuToggle');
+  if (toggle) toggle.style.display = (w <= 768) ? 'flex' : 'none';
+}
+
+function dbToggleSidebar() {
+  var s = document.getElementById('dbSidebar');
+  var o = document.getElementById('dbOverlay');
+  if (!s) return;
+  s.classList.toggle('open');
+  if (o) o.classList.toggle('show');
+}
+
+function dbCloseSidebar() {
+  var s = document.getElementById('dbSidebar');
+  var o = document.getElementById('dbOverlay');
+  if (s) s.classList.remove('open');
+  if (o) o.classList.remove('show');
+}
+
+// ---- View Switching ----
+function dbSwitchView(view) {
+  dbCurrentView = view;
+  dbCloseSidebar();
+
+  // อัป active nav
+  document.querySelectorAll('.db-sidebar-item').forEach(function(btn) { btn.classList.remove('active'); });
+
+  if (view === 'dashboard') {
+    // แสดง dashboard, ซ่อน document list เดิม
+    var dv = document.getElementById('dbViewDashboard');
+    if (dv) dv.classList.add('active');
+    var appMain = document.querySelector('.app-main');
+    if (appMain) appMain.style.display = 'none';
+    // update topbar
+    var pt = document.getElementById('dbPageTitle');
+    if (pt) { pt.textContent = 'Dashboard'; pt.previousElementSibling.innerHTML = '<i class="fas fa-chart-pie"></i>'; }
+    var nav = document.getElementById('dbNavDashboard');
+    if (nav) nav.classList.add('active');
+    // โหลด data ถ้ายังไม่ได้โหลด
+    if (!dbDashboardLoaded) { dbLoadDashboard(); }
+
+  } else if (view === 'documents') {
+    // ซ่อน dashboard, แสดง document list เดิม
+    var dv2 = document.getElementById('dbViewDashboard');
+    if (dv2) dv2.classList.remove('active');
+    var appMain2 = document.querySelector('.app-main');
+    if (appMain2) appMain2.style.display = '';
+    // update topbar
+    var pt2 = document.getElementById('dbPageTitle');
+    if (pt2) { pt2.textContent = 'เอกสารทั้งหมด'; pt2.previousElementSibling.innerHTML = '<i class="fas fa-folder-open"></i>'; }
+    var nav2 = document.getElementById('dbNavDocuments');
+    if (nav2) nav2.classList.add('active');
+  }
+}
+
+// ---- Filter helpers ----
+function dbFilterRecent() {
+  // เรียก function ที่มีอยู่แล้วในระบบ
+  dbSwitchView('documents');
+  if (typeof setSortOrder === 'function') setSortOrder('newest');
+}
+
+function dbFilterCategory(cat) {
+  dbSwitchView('documents');
+  setTimeout(function() {
+    var sel = document.getElementById('categoryFilter');
+    if (sel) {
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].text.indexOf(cat) >= 0) {
+          sel.value = sel.options[i].value;
+          sel.dispatchEvent(new Event('change'));
+          break;
+        }
+      }
+    }
+  }, 200);
+}
+
+function dbOnTopSearch(val) {
+  var si = document.getElementById('searchInput');
+  if (!si) return;
+  if (val) {
+    dbSwitchView('documents');
+    si.value = val;
+    si.dispatchEvent(new Event('input'));
+  }
+}
+
+// ---- Load Config ----
+function dbLoadConfig() {
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    dbApplyConfig({ schoolName:'Data Center', schoolShort:'โรงเรียนบ้านโคกยางหนองถนน', folderId:'', adminEmail:'' });
+    dbSwitchView('dashboard');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(cfg) {
+      dbApplyConfig(cfg || {});
+      dbSwitchView('dashboard');
+    })
+    .withFailureHandler(function() {
+      dbSwitchView('dashboard');
+    })
+    .getSchoolConfig();
+}
+
+function dbApplyConfig(cfg) {
+  if (!cfg) return;
+  // Brand
+  var bn = document.getElementById('dbBrandName');
+  var bs = document.getElementById('dbBrandSub');
+  if (bn && cfg.schoolName) bn.textContent = cfg.schoolName;
+  if (bs && cfg.schoolShort) bs.textContent = cfg.schoolShort;
+  // Logo
+  if (cfg.logoUrl) {
+    var bl = document.getElementById('dbBrandLogo');
+    if (bl) { bl.innerHTML = '<img src="' + cfg.logoUrl + '" style="width:36px;height:36px;object-fit:contain;border-radius:8px;">'; }
+  }
+  // Drive link
+  if (cfg.folderId) {
+    var driveUrl = 'https://drive.google.com/drive/folders/' + cfg.folderId;
+    var navDrive = document.getElementById('dbNavDrive');
+    if (navDrive) navDrive.href = driveUrl;
+    var driveLink = document.getElementById('dbDriveLink');
+    if (driveLink) driveLink.onclick = function() { window.open(driveUrl, '_blank'); };
+  }
+  // User
+  var ua = document.getElementById('dbUserAvatar');
+  if (ua && cfg.adminEmail) ua.textContent = cfg.adminEmail.charAt(0).toUpperCase();
+}
+
+// ---- Load Dashboard Data ----
+function dbLoadDashboard() {
+  dbDashboardLoaded = true;
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    dbRenderDashboard(dbGetMockData()); return;
+  }
+  google.script.run
+    .withSuccessHandler(function(data) { dbRenderDashboard(data); })
+    .withFailureHandler(function(err) {
+      console.error('Dashboard error:', err);
+      dbRenderDashboard(dbGetMockData());
+    })
+    .getDashboardData();
+}
+
+// ---- Render Dashboard ----
+function dbRenderDashboard(data) {
+  if (!data) return;
+  dbRenderStats(data.stats);
+  dbRenderBarChart(data.monthly, data.categories);
+  dbRenderDonutChart(data.categories);
+  dbRenderRecentDocs(data.recent);
+  dbRenderProgress(data.categories);
+  dbUpdateBadges(data.stats);
+}
+
+function dbRenderStats(s) {
+  if (!s) return;
+  var setEl = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
+  setEl('dbStatTotal', s.total || 0);
+  setEl('dbStatToday', s.today || 0);
+  setEl('dbStatCats',  s.categories || 0);
+  setEl('dbStatUsers', s.submitters || 0);
+
+  var sub = document.getElementById('dbStatTotalSub');
+  if (sub) sub.innerHTML = '<i class="fas fa-arrow-up"></i> +' + (s.thisMonth||0) + ' <span>เดือนนี้</span>';
+  var sub2 = document.getElementById('dbStatTodaySub');
+  if (sub2) sub2.innerHTML = '<i class="fas fa-calendar-check"></i> <span>เพิ่มวันนี้</span>';
+  var sub3 = document.getElementById('dbStatCatsSub');
+  if (sub3) sub3.innerHTML = '<i class="fas fa-check"></i> <span>หมวดหมู่ที่ใช้งาน</span>';
+  var sub4 = document.getElementById('dbStatUsersSub');
+  if (sub4) sub4.innerHTML = '<i class="fas fa-users"></i> <span>บุคลากร</span>';
+}
+
+function dbUpdateBadges(s) {
+  if (!s) return;
+  var bt = document.getElementById('dbBadgeTotal');
+  if (bt) bt.textContent = s.total || 0;
+  var bd = document.getElementById('dbBadgeToday');
+  if (bd) bd.textContent = s.today || 0;
+  if (s.today > 0) {
+    var dot = document.getElementById('dbNotifDot');
+    if (dot) dot.style.display = 'block';
+  }
+}
+
+function dbRenderBarChart(monthly, categories) {
+  if (!monthly) return;
+  var canvas = document.getElementById('dbBarChart');
+  if (!canvas) return;
+
+  // สร้าง Legend
+  var legendEl = document.getElementById('dbBarLegend');
+  if (legendEl) {
+    legendEl.innerHTML = categories.map(function(cat, i) {
+      return '<div class="db-legend-item"><div class="db-legend-dot" style="background:' + (dbColors[i]||'#999') + ';"></div>' + cat.name + '</div>';
+    }).join('');
+  }
+
+  // Destroy old chart
+  if (dbChartBar) { dbChartBar.destroy(); dbChartBar = null; }
+
+  var thMonths = ['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.'];
+
+  var datasets = categories.map(function(cat, i) {
+    return {
+      label: cat.name,
+      data: monthly.map(function(m) { return m[cat.name] || 0; }),
+      backgroundColor: (dbColors[i] || '#999') + 'DD',
+      borderRadius: 5,
+      borderSkipped: false
+    };
+  });
+
+  dbChartBar = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: thMonths, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a1f3a',
+          titleFont: { family: 'Sarabun', size: 12 },
+          bodyFont: { family: 'Sarabun', size: 12 },
+          padding: 10, cornerRadius: 8
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: { font: { family: 'Sarabun', size: 11 }, color: '#9ca3af' } },
+        y: { grid: { color: '#f3f4f6' }, border: { display: false }, ticks: { font: { family: 'Sarabun', size: 11 }, color: '#9ca3af', stepSize: 5 } }
+      }
+    }
+  });
+}
+
+function dbRenderDonutChart(categories) {
+  if (!categories || !categories.length) return;
+  var canvas = document.getElementById('dbDonutChart');
+  if (!canvas) return;
+
+  if (dbChartDonut) { dbChartDonut.destroy(); dbChartDonut = null; }
+
+  var total = categories.reduce(function(s, c) { return s + (c.count || 0); }, 0);
+
+  dbChartDonut = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: categories.map(function(c) { return c.name; }),
+      datasets: [{
+        data: categories.map(function(c) { return c.count || 0; }),
+        backgroundColor: dbColors.slice(0, categories.length),
+        borderWidth: 3, borderColor: '#fff', hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '70%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a1f3a',
+          titleFont: { family: 'Sarabun', size: 12 },
+          bodyFont: { family: 'Sarabun', size: 12 },
+          padding: 10, cornerRadius: 8
+        }
+      }
+    }
+  });
+
+  // Legend
+  var legendEl = document.getElementById('dbDonutLegend');
+  if (legendEl) {
+    legendEl.innerHTML = categories.slice(0, 5).map(function(cat, i) {
+      var pct = total > 0 ? Math.round((cat.count / total) * 100) : 0;
+      return '<div class="db-donut-legend-item">' +
+        '<div class="db-dl-dot" style="background:' + (dbColors[i]||'#999') + ';"></div>' +
+        '<span class="db-dl-label">' + cat.name + '</span>' +
+        '<span class="db-dl-value">' + (cat.count||0) + '</span>' +
+        '<span class="db-dl-pct">' + pct + '%</span>' +
+        '</div>';
+    }).join('');
+  }
+}
+
+function dbRenderRecentDocs(docs) {
+  var tbody = document.getElementById('dbRecentTable');
+  var sub = document.getElementById('dbRecentSub');
+  if (!tbody) return;
+
+  if (!docs || !docs.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:30px 0;color:#9ca3af;">ไม่มีเอกสาร</td></tr>';
+    return;
+  }
+
+  if (sub) sub.textContent = docs.length + ' รายการล่าสุด';
+
+  tbody.innerHTML = docs.slice(0, 8).map(function(doc) {
+    var iconClass = dbGetFileIcon(doc.type || doc.fileType || '');
+    var tagClass  = dbTagClasses[doc.category] || 'gray';
+    var dateStr   = dbFormatDate(doc.date || doc.timestamp);
+    return '<tr>' +
+      '<td><div class="db-doc-name">' +
+        '<div class="db-doc-icon ' + iconClass.cls + '"><i class="fas ' + iconClass.icon + '"></i></div>' +
+        '<div><div class="db-doc-title">' + dbEscape(doc.title || doc.name || 'ไม่มีชื่อ') + '</div>' +
+        '<div class="db-doc-meta">' + dbEscape(doc.docId || '') + '</div></div>' +
+      '</div></td>' +
+      '<td><span class="db-tag ' + tagClass + '">' + dbEscape(doc.category || 'อื่นๆ') + '</span></td>' +
+      '<td style="font-size:12.5px;color:#6b7280;">' + dbEscape(doc.submitter || '-') + '</td>' +
+      '<td style="font-size:12px;color:#9ca3af;white-space:nowrap;">' + dateStr + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function dbRenderProgress(categories) {
+  var el = document.getElementById('dbProgressSection');
+  if (!el || !categories || !categories.length) return;
+  var max = Math.max.apply(null, categories.map(function(c) { return c.count || 0; }));
+  var fills = ['db-fill-purple','db-fill-orange','db-fill-green','db-fill-blue'];
+  el.innerHTML = categories.slice(0, 5).map(function(cat, i) {
+    var pct = max > 0 ? Math.round((cat.count / max) * 100) : 0;
+    return '<div class="db-progress-item">' +
+      '<div class="db-progress-header">' +
+        '<span class="db-progress-label">' + dbEscape(cat.name) + '</span>' +
+        '<span class="db-progress-val">' + (cat.count||0) + ' รายการ</span>' +
+      '</div>' +
+      '<div class="db-progress-bar"><div class="db-progress-fill ' + (fills[i]||fills[0]) + '" style="width:' + pct + '%"></div></div>' +
+    '</div>';
+  }).join('');
+}
+
+// ---- Helpers ----
+function dbGetFileIcon(type) {
+  type = (type || '').toLowerCase();
+  if (type.indexOf('pdf') >= 0) return { cls: 'pdf', icon: 'fa-file-pdf' };
+  if (type.indexOf('doc') >= 0 || type.indexOf('word') >= 0) return { cls: 'doc', icon: 'fa-file-word' };
+  if (type.indexOf('xls') >= 0 || type.indexOf('sheet') >= 0) return { cls: 'xls', icon: 'fa-file-excel' };
+  if (type.indexOf('image') >= 0 || type.indexOf('jpg') >= 0 || type.indexOf('png') >= 0) return { cls: 'img', icon: 'fa-file-image' };
+  return { cls: 'def', icon: 'fa-file' };
+}
+
+function dbFormatDate(val) {
+  if (!val) return '-';
+  var d;
+  if (val instanceof Date) { d = val; }
+  else { d = new Date(val); }
+  if (isNaN(d.getTime())) return String(val).substring(0, 10);
+  var today = new Date();
+  if (d.toDateString() === today.toDateString()) {
+    return 'วันนี้ ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  var yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'เมื่อวาน';
+  var months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  return d.getDate() + ' ' + months[d.getMonth()];
+}
+
+function dbEscape(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ---- Export ----
+function dbExportReport() {
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: 'Export รายงาน',
+      text: 'กำลังสร้างไฟล์ Excel...',
+      icon: 'info',
+      showCancelButton: true,
+      confirmButtonText: 'Export เลย',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#667eea'
+    }).then(function(r) {
+      if (!r.isConfirmed) return;
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(url) {
+            if (url) window.open(url, '_blank');
+          })
+          .withFailureHandler(function(e) {
+            Swal.fire('เกิดข้อผิดพลาด', String(e), 'error');
+          })
+          .exportToSheet();
+      } else {
+        Swal.fire('ไม่พร้อมใช้งาน','ฟังก์ชันนี้ต้องการ Google Apps Script','warning');
+      }
+    });
+  }
+}
+
+// ---- Mock Data (fallback) ----
+function dbGetMockData() {
+  var months = ['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.'];
+  var cats = [
+    { name:'หนังสือราชการ', count:89 },
+    { name:'คำสั่ง/ประกาศ', count:52 },
+    { name:'รายงาน', count:61 },
+    { name:'บันทึกข้อความ', count:46 }
+  ];
+  var monthly = months.map(function() {
+    var obj = {};
+    cats.forEach(function(c) { obj[c.name] = Math.floor(Math.random()*15); });
+    return obj;
+  });
+  return {
+    stats: { total:248, today:7, categories:6, submitters:18, thisMonth:12 },
+    monthly: monthly,
+    categories: cats,
+    recent: [
+      { title:'แผนการจัดการเรียนรู้ ม.3', category:'รายงาน', submitter:'ครูสมศรี', date:new Date(), docId:'2568-0248', fileType:'pdf' },
+      { title:'หนังสือถึง สพป. มหาสารคาม', category:'หนังสือราชการ', submitter:'ธุรการ', date:new Date(), docId:'2568-0247', fileType:'doc' },
+      { title:'รายงานผลการเรียน Q1/2568', category:'รายงาน', submitter:'ครูวิชัย', date:new Date(Date.now()-86400000), docId:'2568-0246', fileType:'xls' },
+      { title:'คำสั่งแต่งตั้งคณะกรรมการ', category:'คำสั่ง/ประกาศ', submitter:'ผู้อำนวยการ', date:new Date(Date.now()-172800000), docId:'2568-0245', fileType:'pdf' }
+    ]
+  };
+}
+
+// ---- Load Chart.js if not present ----
+(function() {
+  if (typeof Chart !== 'undefined') return;
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+  s.onload = function() { console.log('Chart.js loaded'); };
+  document.head.appendChild(s);
+})();
+</script>
