@@ -87,6 +87,19 @@ function dbSwitchView(view) {
     if (pt2) { pt2.textContent = 'เอกสารทั้งหมด'; pt2.previousElementSibling.innerHTML = '<i class="fas fa-folder-open"></i>'; }
     var nav2 = document.getElementById('dbNavDocuments');
     if (nav2) nav2.classList.add('active');
+
+    // --- FIX: ล้างค่าตัวกรองและโหลดข้อมูลใหม่ ---
+    var si = document.getElementById('searchInput');
+    if (si) si.value = '';
+    var cf = document.getElementById('categoryFilter');
+    if (cf) cf.value = '';
+    var tf = document.getElementById('typeFilter');
+    if (tf) tf.value = '';
+    
+    if (typeof loadDocuments === 'function') {
+      console.log('🔄 Triggering loadDocuments(true) from dbSwitchView');
+      loadDocuments(true); 
+    }
   }
 }
 
