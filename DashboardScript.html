@@ -161,10 +161,19 @@ function dbApplyConfig(cfg) {
   var bs = document.getElementById('dbBrandSub');
   if (bn && cfg.schoolName) bn.textContent = cfg.schoolName;
   if (bs && cfg.schoolShort) bs.textContent = cfg.schoolShort;
-  // Logo
-  if (cfg.logoUrl) {
-    var bl = document.getElementById('dbBrandLogo');
-    if (bl) { bl.innerHTML = '<img src="' + cfg.logoUrl + '" style="width:36px;height:36px;object-fit:contain;border-radius:8px;">'; }
+  
+  // Logo - ปรับปรุงการแสดงผลโลโก้
+  var bl = document.getElementById('dbBrandLogo');
+  if (bl) {
+    if (cfg.logoUrl) {
+      bl.innerHTML = '<img src="' + cfg.logoUrl + '" style="width:100%; height:100%; object-fit:contain; border-radius:10px;">';
+      bl.style.background = 'transparent'; // เอา gradient พื้นหลังออกเมื่อมีโลโก้
+      bl.style.boxShadow = 'none';
+    } else {
+      bl.innerHTML = '🏫'; // Default icon
+      bl.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+      bl.style.boxShadow = '0 4px 12px rgba(102,126,234,0.4)';
+    }
   }
   // Drive link
   if (cfg.folderId) {
