@@ -2523,13 +2523,40 @@ function handleLineMessageEvent_(event, accessToken, config) {
 }
 
 /**
- * ⭐ จัดการข้อความ text จาก LINE (คำสั่ง + ตั้งชื่อ/หมวดล่วงหน้า)
+ * ⭐ รายการหมวดหมู่สำหรับ LINE Bot (ตรงกับระบบหลัก)
+ */
+var LINE_BOT_CATEGORIES = [
+  'งานฝ่ายบริหาร',
+  'งานวิชาการ',
+  'งานบริหารบุคคล',
+  'งานบริหารการเงินและสินทรัพย์',
+  'งานบริหารทั่วไป',
+  'งานกิจกรรมโรงเรียน',
+  'งานส่งเสริมสนับสนุนอื่นๆ'
+];
+
+/**
+ * ⭐ สร้างข้อความเมนูหมวดหมู่แบบตัวเลข
+ */
+function buildCategoryMenu_() {
+  var menu = '📁 เลือกหมวดหมู่:\n━━━━━━━━━━━━\n';
+  for (var i = 0; i < LINE_BOT_CATEGORIES.length; i++) {
+    menu += (i + 1) + '️⃣ ' + LINE_BOT_CATEGORIES[i] + '\n';
+  }
+  menu += '\n💡 พิมพ์ตัวเลข 1-' + LINE_BOT_CATEGORIES.length + ' เพื่อเลือก\n';
+  menu += '📎 จากนั้นส่งไฟล์ได้เลย!';
+  return menu;
+}
+
+/**
+ * ⭐ จัดการข้อความ text จาก LINE (คำสั่ง + เมนูหมวดหมู่ + ตั้งชื่อ)
  */
 function handleLineTextMessage_(event, accessToken, config) {
   var text = event.message.text || '';
   var replyToken = event.replyToken;
   var userId = event.source ? event.source.userId : 'unknown';
   var trimmed = text.trim();
+  var cache = CacheService.getScriptCache();
 
   // === คำสั่ง: สถานะ ===
   if (trimmed === 'สถานะ' || trimmed.toLowerCase() === 'status') {
@@ -2548,26 +2575,51 @@ function handleLineTextMessage_(event, accessToken, config) {
     return;
   }
 
+  // === คำสั่ง: แสดงเมนูหมวดหมู่ ===
+  if (trimmed === 'หมวด' || trimmed === 'หมวดหมู่' || trimmed.toLowerCase() === 'cat' || trimmed.toLowerCase() === 'category') {
+    replyLineMessage_(replyToken, [{ type: 'text', text: buildCategoryMenu_() }], accessToken);
+    return;
+  }
+
+  // === เลือกหมวดจากตัวเลข (1-7) ===
+  var num = parseInt(trimmed, 10);
+  if (!isNaN(num) && num >= 1 && num <= LINE_BOT_CATEGORIES.length) {
+    var selectedCat = LINE_BOT_CATEGORIES[num - 1];
+    cache.put('LINE_PENDING_CAT_' + userId, selectedCat, 600);
+
+    // ดูว่ามีชื่อเอกสารตั้งไว้แล้วหรือยัง
+    var pendingTitle = cache.get('LINE_PENDING_TITLE_' + userId);
+    var statusMsg = '✅ เลือกหมวด: "' + selectedCat + '"';
+    if (pendingTitle) {
+      statusMsg += '\n📄 ชื่อ: "' + pendingTitle + '"';
+    }
+    statusMsg += '\n\n📎 ส่งไฟล์ได้เลย!';
+    replyLineMessage_(replyToken, [{ type: 'text', text: statusMsg }], accessToken);
+    return;
+  }
+
   // === คำสั่ง: ตั้งชื่อเอกสารล่วงหน้า ===
   if (trimmed.indexOf('ชื่อ:') === 0 || trimmed.toLowerCase().indexOf('title:') === 0) {
-    var pendingTitle = trimmed.replace(/^(ชื่อ:|title:)\s*/i, '');
-    if (pendingTitle) {
-      var cache = CacheService.getScriptCache();
-      cache.put('LINE_PENDING_TITLE_' + userId, pendingTitle, 600);
-      replyLineMessage_(replyToken, [{
-        type: 'text',
-        text: '✅ ตั้งชื่อเอกสาร: "' + pendingTitle + '"\n📎 ส่งไฟล์ได้เลย!'
-      }], accessToken);
+    var pendingTitleVal = trimmed.replace(/^(ชื่อ:|title:)\s*/i, '');
+    if (pendingTitleVal) {
+      cache.put('LINE_PENDING_TITLE_' + userId, pendingTitleVal, 600);
+
+      var pendingCatCheck = cache.get('LINE_PENDING_CAT_' + userId);
+      var titleMsg = '✅ ตั้งชื่อเอกสาร: "' + pendingTitleVal + '"';
+      if (pendingCatCheck) {
+        titleMsg += '\n� หมวด: "' + pendingCatCheck + '"';
+      }
+      titleMsg += '\n\n�📎 ส่งไฟล์ได้เลย!';
+      replyLineMessage_(replyToken, [{ type: 'text', text: titleMsg }], accessToken);
       return;
     }
   }
 
-  // === คำสั่ง: ตั้งหมวดหมู่ล่วงหน้า ===
+  // === คำสั่ง: ตั้งหมวดหมู่ด้วยชื่อ (หมวด:xxx) ===
   if (trimmed.indexOf('หมวด:') === 0 || trimmed.toLowerCase().indexOf('cat:') === 0) {
     var pendingCat = trimmed.replace(/^(หมวด:|cat:)\s*/i, '');
     if (pendingCat) {
-      var cache2 = CacheService.getScriptCache();
-      cache2.put('LINE_PENDING_CAT_' + userId, pendingCat, 600);
+      cache.put('LINE_PENDING_CAT_' + userId, pendingCat, 600);
       replyLineMessage_(replyToken, [{
         type: 'text',
         text: '✅ ตั้งหมวดหมู่: "' + pendingCat + '"\n📎 ส่งไฟล์ได้เลย!'
@@ -2576,17 +2628,19 @@ function handleLineTextMessage_(event, accessToken, config) {
     }
   }
 
-  // === Default: แสดงวิธีใช้ ===
+  // === Default: แสดงวิธีใช้พร้อมเมนูหมวด ===
   var helpText = '📚 ' + (config.schoolName || 'Data Center') + '\n\n'
     + '🤖 วิธีใช้ LINE Bot:\n'
-    + '1️⃣ ส่งไฟล์/รูปภาพ → บันทึกลงระบบอัตโนมัติ\n'
-    + '2️⃣ พิมพ์ "ชื่อ:xxx" → ตั้งชื่อเอกสารล่วงหน้า\n'
-    + '3️⃣ พิมพ์ "หมวด:xxx" → ตั้งหมวดหมู่ล่วงหน้า\n'
-    + '4️⃣ พิมพ์ "สถานะ" → ดูสถานะระบบ\n\n'
-    + '💡 ตัวอย่าง:\n'
-    + '  ส่ง "ชื่อ:ใบเสร็จค่าไฟ"\n'
-    + '  ส่ง "หมวด:การเงิน"\n'
-    + '  จากนั้นส่งไฟล์เอกสาร';
+    + '━━━━━━━━━━━━\n'
+    + '📎 ส่งไฟล์/รูป → บันทึกอัตโนมัติ\n'
+    + '📁 พิมพ์ "หมวด" → เลือกหมวดหมู่\n'
+    + '📝 พิมพ์ "ชื่อ:xxx" → ตั้งชื่อเอกสาร\n'
+    + '📊 พิมพ์ "สถานะ" → ดูสถิติระบบ\n\n'
+    + '💡 ตัวอย่างการใช้:\n'
+    + '  1. พิมพ์ "หมวด" → เลือกเลข\n'
+    + '  2. พิมพ์ "ชื่อ:ใบเสร็จค่าไฟ"\n'
+    + '  3. ส่งไฟล์เอกสาร\n'
+    + '  → ระบบบันทึกให้อัตโนมัติ!';
 
   replyLineMessage_(replyToken, [{ type: 'text', text: helpText }], accessToken);
 }
