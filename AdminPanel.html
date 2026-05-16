@@ -123,8 +123,55 @@
             <i class="fas fa-plug"></i> ทดสอบการเชื่อมต่อ
           </button>
           <button type="button" class="admin-btn secondary" onclick="testLineNotifyFromAdmin()">
-            <i class="fab fa-line" style="color:#06C755"></i> ทดสอบ LINE
+            <i class="fab fa-line" style="color:#06C755"></i> ทดสอบ LINE Notify
           </button>
+        </div>
+
+        <!-- ===== LINE Bot Section ===== -->
+        <div style="margin-top:24px; padding-top:20px; border-top:2px solid #e2e8f0;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+            <i class="fas fa-robot" style="color:#06C755; font-size:18px;"></i>
+            <span style="font-size:15px; font-weight:700; color:#1a1f3a;">LINE Bot (รับไฟล์ผ่าน LINE)</span>
+          </div>
+          
+          <div class="admin-alert info" style="margin-bottom:16px;">
+            <i class="fas fa-info-circle"></i>
+            <span>สร้าง LINE Bot ได้ที่ <strong>developers.line.biz</strong> → เลือก Messaging API</span>
+          </div>
+
+          <div class="admin-form-group">
+            <label><i class="fas fa-key"></i> Channel Access Token</label>
+            <input type="text" id="cfgLineChannelAccessToken" class="admin-input mono" placeholder="Channel Access Token (long-lived)">
+            <small class="admin-hint">LINE Developers → Messaging API → <strong>Channel access token</strong> (กด Issue)</small>
+          </div>
+
+          <div class="admin-form-group">
+            <label><i class="fas fa-lock"></i> Channel Secret</label>
+            <input type="text" id="cfgLineChannelSecret" class="admin-input mono" placeholder="Channel Secret">
+            <small class="admin-hint">LINE Developers → Basic settings → <strong>Channel secret</strong></small>
+          </div>
+
+          <div class="admin-form-group">
+            <label><i class="fas fa-link"></i> Webhook URL (คัดลอกไปวางที่ LINE Developers)</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="cfgWebhookUrl" class="admin-input mono" readonly placeholder="กดปุ่ม 'ดึง URL' เพื่อแสดง" style="flex:1;">
+              <button type="button" class="admin-btn secondary" onclick="getWebhookUrl()" style="white-space:nowrap;">
+                <i class="fas fa-sync-alt"></i> ดึง URL
+              </button>
+              <button type="button" class="admin-btn secondary" onclick="copyWebhookUrl()" style="white-space:nowrap;">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+            <small class="admin-hint">คัดลอก URL นี้ไปวางที่ LINE Developers → Messaging API → <strong>Webhook URL</strong> แล้วเปิด Use webhook</small>
+          </div>
+
+          <div class="admin-actions-row">
+            <button type="button" class="admin-btn secondary" onclick="testLineBotFromAdmin()">
+              <i class="fas fa-robot" style="color:#06C755"></i> ทดสอบ LINE Bot
+            </button>
+          </div>
+
+          <div id="lineBotResult" style="margin-top:8px;"></div>
         </div>
       </div>
 
@@ -182,6 +229,15 @@
             <i class="fas fa-fingerprint"></i> ตั้งค่า DocID
           </button>
           <div id="docIdResult" style="margin-top:8px;"></div>
+        </div>
+
+        <div class="admin-form-group" style="margin-top:24px;">
+          <label><i class="fas fa-key"></i> เปลี่ยนรหัสผู้ดูแลระบบ</label>
+          <input type="password" id="newAdminPassword" class="admin-input" placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)">
+          <input type="password" id="newAdminPasswordConfirm" class="admin-input" placeholder="ยืนยันรหัสผ่านใหม่" style="margin-top:8px;">
+          <button type="button" class="admin-btn secondary" onclick="changeAdminPassword()" style="width:100%; margin-top:10px;">
+            <i class="fas fa-key"></i> เปลี่ยนรหัสผ่าน
+          </button>
         </div>
       </div>
       
@@ -861,6 +917,8 @@ var DEFAULT_CONFIG = {
     setValue('cfgVersion', config.version);
     setValue('cfgCredit', config.credit);
     setValue('cfgLineNotifyToken', config.lineNotifyToken);
+    setValue('cfgLineChannelAccessToken', config.lineChannelAccessToken);
+    setValue('cfgLineChannelSecret', config.lineChannelSecret);
     
     setupColorSync();
     updateThemePreview();
@@ -1026,7 +1084,7 @@ var DEFAULT_CONFIG = {
              didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
           });
         })
-        .removeSchoolLogo();
+        .removeSchoolLogoSecured(getAdminToken_());
     }
   }
   
@@ -1052,6 +1110,90 @@ var DEFAULT_CONFIG = {
       if (img) img.style.display = 'none';
     }
   }
+
+  function getAdminToken_() {
+    return sessionStorage.getItem('adminToken') || '';
+  }
+
+  window.changeAdminPassword = function() {
+    var newPwdEl = document.getElementById('newAdminPassword');
+    var confirmEl = document.getElementById('newAdminPasswordConfirm');
+    var newPwd = newPwdEl ? String(newPwdEl.value || '').trim() : '';
+    var confirmPwd = confirmEl ? String(confirmEl.value || '').trim() : '';
+    var adminToken = getAdminToken_();
+
+    if (!adminToken) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ต้องเข้าสู่ระบบใหม่',
+        text: 'กรุณาเข้าสู่ระบบผู้ดูแลระบบอีกครั้ง',
+        confirmButtonColor: '#f59e0b',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+
+    if (!newPwd || newPwd.length < 6) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'รหัสผ่านไม่ถูกต้อง',
+        text: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร',
+        confirmButtonColor: '#f59e0b',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+
+    if (newPwd !== confirmPwd) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ยืนยันรหัสผ่านไม่ตรงกัน',
+        text: 'กรุณากรอกรหัสผ่านให้ตรงกันทั้งสองช่อง',
+        confirmButtonColor: '#f59e0b',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
+
+    showAdminLoading(true, 'กำลังเปลี่ยนรหัสผ่าน...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        showAdminLoading(false);
+        if (result && result.success) {
+          sessionStorage.removeItem('adminToken');
+          if (newPwdEl) newPwdEl.value = '';
+          if (confirmEl) confirmEl.value = '';
+          Swal.fire({
+            icon: 'success',
+            title: 'สำเร็จ',
+            text: 'เปลี่ยนรหัสผ่านเรียบร้อย กรุณาเข้าสู่ระบบใหม่',
+            confirmButtonColor: '#667eea',
+            didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          }).then(function() {
+            closeAdminModal();
+          });
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'ไม่สำเร็จ',
+            text: result && result.message ? result.message : (result && result.error ? result.error : 'Unknown error'),
+            confirmButtonColor: '#ef4444',
+            didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+          });
+        }
+      })
+      .withFailureHandler(function(error) {
+        showAdminLoading(false);
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: String(error && error.message ? error.message : error),
+          confirmButtonColor: '#ef4444',
+          didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+        });
+      })
+      .setAdminPassword(adminToken, newPwd);
+  };
   
   // ===== 💾 บันทึก Config (ปรับปรุง UI) =====
   window.saveConfig = function() {
@@ -1079,8 +1221,22 @@ var DEFAULT_CONFIG = {
       version: getValue('cfgVersion'),
       credit: getValue('cfgCredit'),
       logoFileId: currentConfig ? (currentConfig.logoFileId || '') : '',
-      lineNotifyToken: getValue('cfgLineNotifyToken')
+      lineNotifyToken: getValue('cfgLineNotifyToken'),
+      lineChannelAccessToken: getValue('cfgLineChannelAccessToken'),
+      lineChannelSecret: getValue('cfgLineChannelSecret')
     };
+
+    var adminToken = getAdminToken_();
+    if (!adminToken) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ต้องเข้าสู่ระบบใหม่',
+        text: 'กรุณาเข้าสู่ระบบผู้ดูแลระบบอีกครั้ง',
+        confirmButtonColor: '#f59e0b',
+        didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
+      });
+      return;
+    }
     
     if (!config.spreadsheetId) {
       Swal.fire({
@@ -1163,7 +1319,7 @@ var DEFAULT_CONFIG = {
             didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
           });
         })
-        .uploadSchoolLogo(base64, pendingLogoFile.type, pendingLogoFile.name);
+        .uploadSchoolLogoSecured(getAdminToken_(), base64, pendingLogoFile.type, pendingLogoFile.name);
     };
     
     reader.onerror = function(e) {
@@ -1234,7 +1390,7 @@ var DEFAULT_CONFIG = {
           didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
         });
       })
-      .saveSchoolConfig(config);
+      .saveSchoolConfigSecured(getAdminToken_(), config);
   }
 
 // ⭐ ฟังก์ชันช่วยอัปเดตหน้าจอทันที (แก้ไขให้เปลี่ยนสี Gradient ด้วย)
@@ -1333,7 +1489,7 @@ function updateThemeOnPage(config) {
              didOpen: function() { var c = Swal.getContainer(); if(c) c.style.setProperty('z-index', '99999', 'important'); }
           });
         })
-        .resetSchoolConfig();
+        .resetSchoolConfigSecured(getAdminToken_());
     }
   }
   
@@ -1606,6 +1762,57 @@ function updateThemeOnPage(config) {
       })
       .withFailureHandler(function(e) { if (result) result.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px;">'+e.message+'</div>'; })
       .setupDocIdColumn();
+  };
+
+  // ===== 🤖 LINE Bot Functions =====
+  window.getWebhookUrl = function() {
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      Swal.fire({ icon:'warning', title:'ไม่สามารถเชื่อมต่อ Server', didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.success && r.url) {
+          setValue('cfgWebhookUrl', r.url);
+        } else {
+          Swal.fire({ icon:'error', title:'ดึง URL ไม่สำเร็จ', text: r ? r.error : 'Unknown', didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+        }
+      })
+      .withFailureHandler(function(e) {
+        Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: e.message || String(e), didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+      })
+      .getLineBotWebhookUrl();
+  };
+
+  window.copyWebhookUrl = function() {
+    var urlEl = document.getElementById('cfgWebhookUrl');
+    if (!urlEl || !urlEl.value) {
+      Swal.fire({ icon:'info', title:'กรุณากดปุ่ม "ดึง URL" ก่อน', didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+      return;
+    }
+    urlEl.select();
+    document.execCommand('copy');
+    Swal.fire({ icon:'success', title:'คัดลอก URL แล้ว!', timer:1200, showConfirmButton:false, didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+  };
+
+  window.testLineBotFromAdmin = function() {
+    var resultEl = document.getElementById('lineBotResult');
+    if (resultEl) resultEl.innerHTML = '<div style="color:#94a3b8;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> กำลังทดสอบ...</div>';
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.success) {
+          if (resultEl) resultEl.innerHTML = '<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px;"><i class="fas fa-check-circle"></i> ' + r.message + '</div>';
+          Swal.fire({ icon:'success', title:r.message, didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+        } else {
+          if (resultEl) resultEl.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px;"><i class="fas fa-times-circle"></i> ' + (r ? r.error : 'Unknown') + '</div>';
+          Swal.fire({ icon:'error', title: r ? r.error : 'ทดสอบไม่สำเร็จ', didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+        }
+      })
+      .withFailureHandler(function(e) {
+        if (resultEl) resultEl.innerHTML = '<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px;">' + (e.message || String(e)) + '</div>';
+        Swal.fire({ icon:'error', title:e.message || String(e), didOpen: function(){var c=Swal.getContainer();if(c)c.style.setProperty('z-index','99999','important');} });
+      })
+      .testLineBot();
   };
 
   // ===== #10 LINE Notify Test =====

@@ -15,6 +15,8 @@ const DEFAULT_CONFIG = {
   folderId: '', // ปล่อยว่างไว้เพื่อให้ระบบบังคับตั้งค่าครั้งแรก
   googleFormUrl: '',
   lineNotifyToken: '', // เพิ่มช่องสำหรับ LINE Notify ของแต่ละโรงเรียน
+  lineChannelAccessToken: '', // LINE Bot Channel Access Token (Messaging API)
+  lineChannelSecret: '', // LINE Bot Channel Secret
   primaryColor: '#6366f1', // สีหลัก (Indigo)
   secondaryColor: '#4f46e5',
   version: '16.0',
@@ -22,7 +24,9 @@ const DEFAULT_CONFIG = {
   logoFileId: ''
 };
 
-const ADMIN_PASSWORD = '3333';
+const DEFAULT_ADMIN_PASSWORD = '3333';
+const ADMIN_PASSWORD_HASH_KEY = 'ADMIN_PASSWORD_HASH';
+const ADMIN_PASSWORD_SALT_KEY = 'ADMIN_PASSWORD_SALT';
 const DOCS_CACHE_KEY = 'RKT_DOCS_CACHE_V1';
 const DOCS_CACHE_TTL_SECONDS = 300;
 const SUBMITTERS_SHEET_NAME = 'ผู้ส่ง';
@@ -32,6 +36,52 @@ const AUDIT_LOG_SHEET_NAME = 'Audit_Log';
 
 // ✅ [NEW] Token Configuration
 const TOKEN_EXPIRY_HOURS = 24;
+
+function hashPassword_(password, salt) {
+  var raw = String(salt || '') + '|' + String(password || '');
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
+  return bytes.map(function(b) {
+    var v = (b < 0 ? b + 256 : b);
+    return ('0' + v.toString(16)).slice(-2);
+  }).join('');
+}
+
+function ensureAdminPasswordInitialized_() {
+  var props = PropertiesService.getScriptProperties();
+  var hash = props.getProperty(ADMIN_PASSWORD_HASH_KEY);
+  var salt = props.getProperty(ADMIN_PASSWORD_SALT_KEY);
+  if (!hash || !salt) {
+    salt = Utilities.getUuid();
+    hash = hashPassword_(DEFAULT_ADMIN_PASSWORD, salt);
+    props.setProperty(ADMIN_PASSWORD_SALT_KEY, salt);
+    props.setProperty(ADMIN_PASSWORD_HASH_KEY, hash);
+  }
+  return { salt: salt, hash: hash };
+}
+
+function verifyAdminPassword_(password) {
+  var init = ensureAdminPasswordInitialized_();
+  return hashPassword_(password, init.salt) === init.hash;
+}
+
+function setAdminPassword(token, newPassword) {
+  return requireAuth_(token, function(username) {
+    if (username !== 'admin') {
+      return { success: false, error: 'FORBIDDEN', message: 'ไม่มีสิทธิ์' };
+    }
+    newPassword = String(newPassword || '').trim();
+    if (newPassword.length < 6) {
+      return { success: false, error: 'WEAK_PASSWORD', message: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' };
+    }
+    var props = PropertiesService.getScriptProperties();
+    var salt = Utilities.getUuid();
+    var hash = hashPassword_(newPassword, salt);
+    props.setProperty(ADMIN_PASSWORD_SALT_KEY, salt);
+    props.setProperty(ADMIN_PASSWORD_HASH_KEY, hash);
+    resetTokenSecret();
+    return { success: true, message: 'เปลี่ยนรหัสผ่านเรียบร้อย' };
+  });
+}
 
 // ===================================================================
 // 🔐 TOKEN-BASED AUTHENTICATION SYSTEM
@@ -165,7 +215,7 @@ function refreshToken(oldToken) {
  * ✅ [API] Admin Login - ตรวจสอบรหัสผ่านและสร้าง token
  */
 function adminLogin(password) {
-  if ((password || '').toString().trim() === ADMIN_PASSWORD) {
+  if (verifyAdminPassword_((password || '').toString().trim())) {
     var token = generateAuthToken('admin');
     return {
       success: true,
@@ -220,9 +270,10 @@ function requireAuth_(token, callback) {
 
 function doGet(e) {
   var template = HtmlService.createTemplateFromFile('index');
+  var config = getSchoolConfig();
   
   var output = template.evaluate()
-    .setTitle('ระบบศูนย์กลางข้อมูล รร.บ้านโคกยางหนองถนน')
+    .setTitle('ระบบศูนย์กลางข้อมูล ' + (config.schoolName || ''))
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   
@@ -332,6 +383,15 @@ function saveSchoolConfig(config, logoFileId) {
   }
 }
 
+function saveSchoolConfigSecured(token, config, logoFileId) {
+  return requireAuth_(token, function(username) {
+    if (username !== 'admin') {
+      return { success: false, error: 'FORBIDDEN', message: 'ไม่มีสิทธิ์' };
+    }
+    return saveSchoolConfig(config, logoFileId);
+  });
+}
+
 function resetSchoolConfig() {
   try {
     var current = getSchoolConfig();
@@ -344,6 +404,15 @@ function resetSchoolConfig() {
   } catch(e) {
     return { success: false, error: e.toString() };
   }
+}
+
+function resetSchoolConfigSecured(token) {
+  return requireAuth_(token, function(username) {
+    if (username !== 'admin') {
+      return { success: false, error: 'FORBIDDEN', message: 'ไม่มีสิทธิ์' };
+    }
+    return resetSchoolConfig();
+  });
 }
 
 /**
@@ -873,6 +942,15 @@ function uploadSchoolLogo(base64Data, mimeType, fileName) {
   }
 }
 
+function uploadSchoolLogoSecured(token, base64Data, mimeType, fileName) {
+  return requireAuth_(token, function(username) {
+    if (username !== 'admin') {
+      return { success: false, error: 'FORBIDDEN', message: 'ไม่มีสิทธิ์' };
+    }
+    return uploadSchoolLogo(base64Data, mimeType, fileName);
+  });
+}
+
 function serveSchoolLogo() {
   try {
     var config = getSchoolConfig();
@@ -902,6 +980,15 @@ function removeSchoolLogo() {
   } catch (e) {
     return { success: false, error: e.toString() };
   }
+}
+
+function removeSchoolLogoSecured(token) {
+  return requireAuth_(token, function(username) {
+    if (username !== 'admin') {
+      return { success: false, error: 'FORBIDDEN', message: 'ไม่มีสิทธิ์' };
+    }
+    return removeSchoolLogo();
+  });
 }
 
 function uploadMultipleFilesFromUrls(data) {
@@ -2366,3 +2453,384 @@ function setupDocIdColumn() {
   }
 }
 
+// ===================================================================
+// 🤖 LINE BOT WEBHOOK (รับไฟล์ผ่าน LINE → บันทึกลง Sheet + Drive)
+// ===================================================================
+
+/**
+ * ⭐ Webhook endpoint สำหรับรับข้อมูลจาก LINE Messaging API
+ * LINE จะส่ง POST request มาที่ Web App URL นี้
+ */
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'No data' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var body = JSON.parse(e.postData.contents);
+    var events = body.events || [];
+
+    if (events.length === 0) {
+      // LINE ส่ง verify webhook มาพร้อม events ว่าง → ตอบ ok
+      return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var config = getSchoolConfig();
+    var accessToken = config.lineChannelAccessToken;
+
+    if (!accessToken) {
+      Logger.log('⚠️ LINE Bot: ไม่พบ Channel Access Token');
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'No access token configured' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      var event = events[i];
+      if (event.type === 'message') {
+        handleLineMessageEvent_(event, accessToken, config);
+      }
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    Logger.log('❌ doPost error: ' + err.toString());
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * ⭐ จัดการ message event จาก LINE (แยก text / file / image / video / audio)
+ */
+function handleLineMessageEvent_(event, accessToken, config) {
+  var msgType = event.message.type;
+  var replyToken = event.replyToken;
+
+  if (msgType === 'image' || msgType === 'video' || msgType === 'audio' || msgType === 'file') {
+    handleLineFileMessage_(event, accessToken, config);
+  } else if (msgType === 'text') {
+    handleLineTextMessage_(event, accessToken, config);
+  } else {
+    replyLineMessage_(replyToken, [{
+      type: 'text',
+      text: '⚠️ ขออภัย ระบบรองรับเฉพาะข้อความ, รูปภาพ, วิดีโอ, เสียง และไฟล์เอกสารเท่านั้น'
+    }], accessToken);
+  }
+}
+
+/**
+ * ⭐ จัดการข้อความ text จาก LINE (คำสั่ง + ตั้งชื่อ/หมวดล่วงหน้า)
+ */
+function handleLineTextMessage_(event, accessToken, config) {
+  var text = event.message.text || '';
+  var replyToken = event.replyToken;
+  var userId = event.source ? event.source.userId : 'unknown';
+  var trimmed = text.trim();
+
+  // === คำสั่ง: สถานะ ===
+  if (trimmed === 'สถานะ' || trimmed.toLowerCase() === 'status') {
+    try {
+      var sheet = _getSheetSafe_();
+      var totalDocs = Math.max(0, sheet.getLastRow() - 1);
+      var statusText = '📊 สถานะระบบ\n'
+        + '━━━━━━━━━━━━\n'
+        + '🏫 ' + (config.schoolName || '-') + '\n'
+        + '📄 เอกสารทั้งหมด: ' + totalDocs + ' รายการ\n'
+        + '✅ ระบบทำงานปกติ';
+      replyLineMessage_(replyToken, [{ type: 'text', text: statusText }], accessToken);
+    } catch (e) {
+      replyLineMessage_(replyToken, [{ type: 'text', text: '⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูลได้' }], accessToken);
+    }
+    return;
+  }
+
+  // === คำสั่ง: ตั้งชื่อเอกสารล่วงหน้า ===
+  if (trimmed.indexOf('ชื่อ:') === 0 || trimmed.toLowerCase().indexOf('title:') === 0) {
+    var pendingTitle = trimmed.replace(/^(ชื่อ:|title:)\s*/i, '');
+    if (pendingTitle) {
+      var cache = CacheService.getScriptCache();
+      cache.put('LINE_PENDING_TITLE_' + userId, pendingTitle, 600);
+      replyLineMessage_(replyToken, [{
+        type: 'text',
+        text: '✅ ตั้งชื่อเอกสาร: "' + pendingTitle + '"\n📎 ส่งไฟล์ได้เลย!'
+      }], accessToken);
+      return;
+    }
+  }
+
+  // === คำสั่ง: ตั้งหมวดหมู่ล่วงหน้า ===
+  if (trimmed.indexOf('หมวด:') === 0 || trimmed.toLowerCase().indexOf('cat:') === 0) {
+    var pendingCat = trimmed.replace(/^(หมวด:|cat:)\s*/i, '');
+    if (pendingCat) {
+      var cache2 = CacheService.getScriptCache();
+      cache2.put('LINE_PENDING_CAT_' + userId, pendingCat, 600);
+      replyLineMessage_(replyToken, [{
+        type: 'text',
+        text: '✅ ตั้งหมวดหมู่: "' + pendingCat + '"\n📎 ส่งไฟล์ได้เลย!'
+      }], accessToken);
+      return;
+    }
+  }
+
+  // === Default: แสดงวิธีใช้ ===
+  var helpText = '📚 ' + (config.schoolName || 'Data Center') + '\n\n'
+    + '🤖 วิธีใช้ LINE Bot:\n'
+    + '1️⃣ ส่งไฟล์/รูปภาพ → บันทึกลงระบบอัตโนมัติ\n'
+    + '2️⃣ พิมพ์ "ชื่อ:xxx" → ตั้งชื่อเอกสารล่วงหน้า\n'
+    + '3️⃣ พิมพ์ "หมวด:xxx" → ตั้งหมวดหมู่ล่วงหน้า\n'
+    + '4️⃣ พิมพ์ "สถานะ" → ดูสถานะระบบ\n\n'
+    + '💡 ตัวอย่าง:\n'
+    + '  ส่ง "ชื่อ:ใบเสร็จค่าไฟ"\n'
+    + '  ส่ง "หมวด:การเงิน"\n'
+    + '  จากนั้นส่งไฟล์เอกสาร';
+
+  replyLineMessage_(replyToken, [{ type: 'text', text: helpText }], accessToken);
+}
+
+/**
+ * ⭐ จัดการไฟล์/รูปภาพ/วิดีโอ/เสียง จาก LINE
+ *   ดาวน์โหลด → บันทึก Drive → บันทึก Sheet → ตอบกลับ
+ */
+function handleLineFileMessage_(event, accessToken, config) {
+  var msgType = event.message.type;
+  var messageId = event.message.id;
+  var replyToken = event.replyToken;
+  var userId = event.source ? event.source.userId : '';
+
+  try {
+    // 1) ดึงชื่อผู้ส่งจาก LINE Profile
+    var displayName = 'LINE User';
+    if (userId) {
+      try {
+        var profile = getLineUserProfile_(userId, accessToken);
+        if (profile && profile.displayName) {
+          displayName = profile.displayName;
+        }
+      } catch (profileErr) {
+        Logger.log('⚠️ Get LINE profile failed: ' + profileErr);
+      }
+    }
+
+    // 2) กำหนดชื่อไฟล์ตามประเภท
+    var fileName = '';
+    var timeStamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyyMMdd_HHmmss');
+
+    if (msgType === 'file') {
+      fileName = event.message.fileName || ('ไฟล์จาก_LINE_' + timeStamp);
+    } else if (msgType === 'image') {
+      fileName = 'IMG_LINE_' + timeStamp + '.jpg';
+    } else if (msgType === 'video') {
+      fileName = 'VID_LINE_' + timeStamp + '.mp4';
+    } else if (msgType === 'audio') {
+      fileName = 'AUD_LINE_' + timeStamp + '.m4a';
+    }
+
+    // 3) ดาวน์โหลดไฟล์จาก LINE Content API
+    var blob = downloadLineContent_(messageId, accessToken);
+    if (!blob) {
+      replyLineMessage_(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดาวน์โหลดไฟล์ได้' }], accessToken);
+      return;
+    }
+    blob.setName(fileName);
+
+    // 4) ตรวจ pending หมวดหมู่จาก cache
+    var category = 'เอกสารจาก LINE';
+    var cache = CacheService.getScriptCache();
+    if (userId) {
+      var pendingCat = cache.get('LINE_PENDING_CAT_' + userId);
+      if (pendingCat) {
+        category = pendingCat;
+        cache.remove('LINE_PENDING_CAT_' + userId);
+      }
+    }
+
+    // 5) บันทึกลง Google Drive
+    var folder = getOrCreateCategoryFolder(category);
+    var file = folder.createFile(blob);
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {
+      Logger.log('⚠️ setSharing failed: ' + shareErr);
+    }
+
+    // 6) ตรวจ pending ชื่อเอกสารจาก cache
+    var docTitle = fileName;
+    if (userId) {
+      var pendingTitle = cache.get('LINE_PENDING_TITLE_' + userId);
+      if (pendingTitle) {
+        docTitle = pendingTitle;
+        cache.remove('LINE_PENDING_TITLE_' + userId);
+      }
+    }
+
+    // 7) บันทึกลง Google Sheet (ใช้ addDocument เดิม)
+    var fileObjects = JSON.stringify([{
+      name: file.getName(),
+      url: file.getUrl(),
+      fileUrl: file.getUrl(),
+      mimeType: file.getMimeType(),
+      size: file.getSize()
+    }]);
+
+    var docData = {
+      title: docTitle,
+      category: category,
+      document_type: msgType === 'image' ? 'รูปภาพ' : msgType === 'video' ? 'วิดีโอ' : msgType === 'audio' ? 'เสียง' : 'ไฟล์เอกสาร',
+      submitter_name: displayName,
+      tags: 'LINE Bot',
+      description: 'ส่งผ่าน LINE Bot โดย ' + displayName,
+      file_objects_json: fileObjects
+    };
+
+    var result = addDocument(docData);
+
+    // 8) ตอบกลับผู้ส่ง
+    if (result && result.success) {
+      var successText = '✅ บันทึกสำเร็จ!\n'
+        + '━━━━━━━━━━━━\n'
+        + '📄 ชื่อ: ' + docTitle + '\n'
+        + '📁 หมวด: ' + category + '\n'
+        + '👤 ผู้ส่ง: ' + displayName + '\n'
+        + '🔗 ' + file.getUrl();
+      replyLineMessage_(replyToken, [{ type: 'text', text: successText }], accessToken);
+    } else {
+      replyLineMessage_(replyToken, [{
+        type: 'text',
+        text: '❌ บันทึกไม่สำเร็จ: ' + (result ? result.error : 'Unknown error')
+      }], accessToken);
+    }
+
+    Logger.log('✅ LINE Bot: บันทึกไฟล์สำเร็จ - ' + docTitle);
+
+  } catch (err) {
+    Logger.log('❌ LINE Bot handleFile error: ' + err.toString());
+    try {
+      replyLineMessage_(replyToken, [{
+        type: 'text',
+        text: '❌ เกิดข้อผิดพลาด: ' + err.toString()
+      }], accessToken);
+    } catch (replyErr) {
+      Logger.log('❌ Reply failed: ' + replyErr);
+    }
+  }
+}
+
+/**
+ * ⭐ ดาวน์โหลดไฟล์จาก LINE Content API
+ */
+function downloadLineContent_(messageId, accessToken) {
+  var url = 'https://api-data.line.me/v2/bot/message/' + messageId + '/content';
+  var options = {
+    method: 'get',
+    headers: { 'Authorization': 'Bearer ' + accessToken },
+    muteHttpExceptions: true
+  };
+
+  var response = UrlFetchApp.fetch(url, options);
+
+  if (response.getResponseCode() === 200) {
+    return response.getBlob();
+  }
+
+  Logger.log('❌ Download LINE content failed: HTTP ' + response.getResponseCode());
+  return null;
+}
+
+/**
+ * ⭐ ดึงโปรไฟล์ผู้ใช้ LINE
+ */
+function getLineUserProfile_(userId, accessToken) {
+  var url = 'https://api.line.me/v2/bot/profile/' + userId;
+  var options = {
+    method: 'get',
+    headers: { 'Authorization': 'Bearer ' + accessToken },
+    muteHttpExceptions: true
+  };
+
+  var response = UrlFetchApp.fetch(url, options);
+
+  if (response.getResponseCode() === 200) {
+    return JSON.parse(response.getContentText());
+  }
+
+  Logger.log('⚠️ Get LINE profile failed: HTTP ' + response.getResponseCode());
+  return null;
+}
+
+/**
+ * ⭐ ตอบกลับข้อความไปยัง LINE
+ */
+function replyLineMessage_(replyToken, messages, accessToken) {
+  var url = 'https://api.line.me/v2/bot/message/reply';
+  var payload = {
+    replyToken: replyToken,
+    messages: messages
+  };
+
+  var options = {
+    method: 'post',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + accessToken
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  var response = UrlFetchApp.fetch(url, options);
+
+  if (response.getResponseCode() !== 200) {
+    Logger.log('⚠️ LINE reply failed: ' + response.getContentText());
+  }
+}
+
+/**
+ * ⭐ ดึง Webhook URL สำหรับตั้งค่าใน LINE Developers Console
+ */
+function getLineBotWebhookUrl() {
+  try {
+    var url = ScriptApp.getService().getUrl();
+    return { success: true, url: url };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * ⭐ ทดสอบ LINE Bot (เช็คว่า Token ใช้ได้หรือไม่)
+ */
+function testLineBot() {
+  try {
+    var config = getSchoolConfig();
+    if (!config.lineChannelAccessToken) {
+      return { success: false, error: 'ยังไม่ได้ตั้งค่า LINE Channel Access Token' };
+    }
+
+    var url = 'https://api.line.me/v2/bot/info';
+    var options = {
+      method: 'get',
+      headers: { 'Authorization': 'Bearer ' + config.lineChannelAccessToken },
+      muteHttpExceptions: true
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+
+    if (response.getResponseCode() === 200) {
+      var botInfo = JSON.parse(response.getContentText());
+      return {
+        success: true,
+        message: 'LINE Bot เชื่อมต่อสำเร็จ! ชื่อ Bot: ' + (botInfo.displayName || botInfo.basicId || 'Unknown'),
+        botName: botInfo.displayName || '',
+        botId: botInfo.basicId || ''
+      };
+    } else {
+      return { success: false, error: 'Token ไม่ถูกต้อง (HTTP ' + response.getResponseCode() + ')' };
+    }
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}

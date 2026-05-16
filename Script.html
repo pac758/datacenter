@@ -199,18 +199,61 @@ function handleDrop(e) {
 // เปิด Google Form + เซ็ต flag เพื่อ auto-refresh เมื่อกลับหน้า
 // (รวมพฤติกรรมแสดง Swal + เปิดแท็บใหม่ + บันทึกเวลา)
 function openGoogleForm() {
-  const formUrl = 'https://forms.gle/HLDaND9apWxmENLh6';
-  formSubmitTime = Date.now();
+  const openWithUrl = (formUrl) => {
+    formSubmitTime = Date.now();
+    Swal.fire({
+      title: 'เปิด Google Form',
+      html: '<b>กรุณาส่งฟอร์มให้เรียบร้อย</b><br>เมื่อกลับมา ระบบจะอัปเดตข้อมูลอัตโนมัติ',
+      icon: 'info',
+      timer: 2000,
+      showConfirmButton: false,
+      timerProgressBar: true
+    });
+    setTimeout(() => window.open(formUrl, '_blank', 'noopener,noreferrer'), 500);
+  };
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function(url) {
+        const formUrl = String(url || '').trim();
+        if (!formUrl) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'ยังไม่ได้ตั้งค่า Google Form',
+            text: 'กรุณาไปที่ Admin แล้วกำหนด Google Form URL',
+            confirmButtonColor: '#f59e0b'
+          });
+          return;
+        }
+        if (!validateUrl(formUrl)) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Google Form URL ไม่ถูกต้อง',
+            text: 'กรุณาตรวจสอบ URL ในหน้า Admin อีกครั้ง',
+            confirmButtonColor: '#ef4444'
+          });
+          return;
+        }
+        openWithUrl(formUrl);
+      })
+      .withFailureHandler(function(err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: (err && err.message) ? err.message : String(err),
+          confirmButtonColor: '#ef4444'
+        });
+      })
+      .openGoogleForm();
+    return;
+  }
+
   Swal.fire({
-    title: 'เปิด Google Form',
-    html: '<b>กรุณาส่งฟอร์มให้เรียบร้อย</b><br>เมื่อกลับมา ระบบจะอัปเดตข้อมูลอัตโนมัติ',
-    icon: 'info',
-    timer: 2000,
-    showConfirmButton: false,
-    timerProgressBar: true
-    // ❌ อย่าใช้ Swal.showLoading() ที่นี่
+    icon: 'warning',
+    title: 'ไม่สามารถเปิด Google Form ได้',
+    text: 'กรุณาเปิดใช้งานผ่านระบบ (Google Apps Script Web App)',
+    confirmButtonColor: '#f59e0b'
   });
-  setTimeout(() => window.open(formUrl, '_blank', 'noopener,noreferrer'), 500);
 }
 
 // แสดงตัวอย่าง URL ที่วาง + ปุ่มลบทีละบรรทัด
