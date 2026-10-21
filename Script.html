@@ -312,7 +312,18 @@ const SHEET_NAME = 'การตอบแบบฟอร์ม 1';
 
 // Global Variables (ประกาศครั้งเดียว)
 let currentPage = 1;
-const pageSize = 10;
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+let pageSize = getSavedPageSize_();
+
+// อ่านจำนวนต่อหน้าที่ผู้ใช้เลือกไว้ (localStorage อาจใช้ไม่ได้ในบางเบราว์เซอร์)
+function getSavedPageSize_() {
+  try {
+    const n = parseInt(JSON.parse(localStorage.getItem('rktSettings') || '{}').perPage, 10);
+    return PAGE_SIZE_OPTIONS.indexOf(n) !== -1 ? n : 10;
+  } catch (e) {
+    return 10;
+  }
+}
 let totalPages = 1;
 
 let allDocuments = [];
@@ -1749,19 +1760,40 @@ function updatePagination(result) {
   
   console.log('📊 Update Pagination:', result);
   
-  // แสดง/ซ่อน Pagination
-  if (result.totalPages > 1) {
-    if (paginationContainer) {
-      paginationContainer.style.display = 'flex';
-      // ⭐ ใช้ renderPagination แบบใหม่ที่มีเลขหน้า
-      renderPagination('#paginationContainer', result.totalPages, result.page, 'gotoPage');
-    }
-  } else {
-    // มีหน้าเดียว - ซ่อน pagination
-    if (paginationContainer) {
-      paginationContainer.style.display = 'none';
-    }
+  const topBar = document.getElementById('paginationTop');
+  const total = result.total || 0;
+
+  if (total === 0) {
+    if (paginationContainer) paginationContainer.style.display = 'none';
+    if (topBar) topBar.style.display = 'none';
+    return;
   }
+
+  // แถบ: แสดงช่วงรายการ + เลือกจำนวนต่อหน้า (+ ปุ่มเปลี่ยนหน้า ถ้ามีหลายหน้า)
+  [paginationContainer, topBar].forEach(function(container) {
+    if (!container) return;
+    container.style.display = 'flex';
+    container.innerHTML = '';
+    if (result.totalPages > 1) {
+      renderPagination('#' + container.id, result.totalPages, result.page, 'gotoPage');
+    }
+    container.insertAdjacentHTML('beforeend', buildPageSizeBar_(result));
+  });
+}
+
+function buildPageSizeBar_(result) {
+  const page = result.page || 1;
+  const size = result.pageSize || pageSize;
+  const total = result.total || 0;
+  const start = (page - 1) * size + 1;
+  const end = Math.min(page * size, total);
+  const options = PAGE_SIZE_OPTIONS.map(function(n) {
+    return '<option value="' + n + '"' + (n === size ? ' selected' : '') + '>' + n + '</option>';
+  }).join('');
+  return '<div class="page-size-bar">' +
+    '<span>แสดง <strong>' + start + '–' + end + '</strong> จาก <strong>' + total + '</strong> รายการ</span>' +
+    '<label>ต่อหน้า <select class="page-size-select" onchange="setPerPage(parseInt(this.value, 10))">' + options + '</select></label>' +
+    '</div>';
 }
     /**
  * อัปเดตข้อมูลจำนวนไฟล์ที่แสดง
@@ -6652,7 +6684,7 @@ function loadSettings() {
   document.getElementById(view === 'grid' ? 'optGrid' : 'optList')?.classList.add('active');
   
   // จำนวนต่อหน้า
-  const perPage = settings.perPage || 20;
+  const perPage = pageSize;
   document.querySelectorAll('[data-per-page]').forEach(btn => {
     btn.classList.toggle('active', parseInt(btn.dataset.perPage) === perPage);
   });
@@ -6694,20 +6726,16 @@ function setPerPage(num) {
     btn.classList.toggle('active', parseInt(btn.dataset.perPage) === num);
   });
   
-  saveSettings('perPage', num);
-  
-  // อัปเดตตัวแปร global (ถ้ามี)
-  if (typeof itemsPerPage !== 'undefined') {
-    window.itemsPerPage = num;
-  }
-  
+  try { saveSettings('perPage', num); } catch (e) {}
+  pageSize = num;
+  currentPage = 1;
+
   // ปิด modal
   closeSettingsModal();
-  
-  // รีโหลดข้อมูล
-  if (typeof renderDocuments === 'function') {
-    renderDocuments();
-  }
+
+  // โหลดหน้าแรกใหม่ตามจำนวนต่อหน้าที่เลือก
+  clearCache();
+  loadDocuments(true, { suppressOverlay: true });
   
   showToast('แสดง ' + num + ' รายการต่อหน้า', 'success');
 }

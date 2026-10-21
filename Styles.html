@@ -3942,4 +3942,45 @@ body.admin-modal-open {
   }
 }
 
+
+/* Pagination: แถบเลือกจำนวนต่อหน้า + แถบด้านบนรายการ */
+.page-size-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 20px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.page-size-bar strong {
+  color: #1e293b;
+}
+
+.page-size-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-select {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  color: #1e293b;
+  cursor: pointer;
+}
+
+.pagination-container.pagination-top {
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-top: 0;
+  padding-bottom: 16px;
+  border-top: none;
+  border-bottom: 2px solid rgba(226, 232, 240, 0.5);
+}
+
 </style>

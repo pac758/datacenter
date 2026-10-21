@@ -74,8 +74,8 @@
     var dbMain  = document.getElementById('dbMain');
 
     if (appMain && dbMain) {
-      // ซ่อน .app-main ก่อน (Dashboard จะเปิดแทน)
-      appMain.style.display = 'none';
+      // แสดง .app-main เฉพาะเมื่อหน้าแรกคือ "เอกสารทั้งหมด" (dbCurrentView มาจาก DashboardScript)
+      appMain.style.display = (window.dbCurrentView === 'documents') ? '' : 'none';
 
       // ย้าย appMain เข้า dbMain ต่อท้าย db-content
       var dbContent = dbMain.querySelector('.db-content');
