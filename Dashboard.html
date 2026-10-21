@@ -31,7 +31,7 @@
           Dashboard
         </button>
 
-        <button class="db-sidebar-item" id="dbNavDocuments" onclick="dbSwitchView('documents')">
+        <button class="db-sidebar-item active" id="dbNavDocuments" onclick="dbSwitchView('documents')">
           <i class="fas fa-folder-open db-s-icon"></i>
           เอกสารทั้งหมด
           <span class="db-s-badge" id="dbBadgeTotal">-</span>
@@ -118,8 +118,8 @@
       </button>
 
       <div class="db-topbar-title">
-        <div class="db-page-icon"><i class="fas fa-chart-pie"></i></div>
-        <span id="dbPageTitle">Dashboard</span>
+        <div class="db-page-icon"><i class="fas fa-folder-open"></i></div>
+        <span id="dbPageTitle">เอกสารทั้งหมด</span>
       </div>
 
       <div class="db-topbar-search">
@@ -145,7 +145,7 @@
     <div class="db-content">
 
       <!-- ==================== DASHBOARD VIEW ==================== -->
-      <div id="dbViewDashboard" class="active">
+      <div id="dbViewDashboard">
 
         <!-- Header -->
         <div class="db-page-header">

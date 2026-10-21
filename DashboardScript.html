@@ -2,10 +2,11 @@
 /* ===== DashboardScript.html — Data Center Dashboard v1.0 ===== */
 
 // ---- State ----
-var dbCurrentView = 'dashboard';
+var dbCurrentView = 'documents';
 var dbChartBar = null;
 var dbChartDonut = null;
 var dbDashboardLoaded = false;
+var dbPrefetchedData = null;
 var dbColors = ['#667eea','#ff7043','#43a047','#039be5','#ab47bc','#26a69a'];
 var dbTagClasses = { 'หนังสือราชการ':'orange', 'คำสั่ง':'blue', 'ประกาศ':'blue', 'บันทึกข้อความ':'gray', 'รายงาน':'purple', 'อื่นๆ':'green' };
 
@@ -13,8 +14,9 @@ var dbTagClasses = { 'หนังสือราชการ':'orange', 'คำ
 document.addEventListener('DOMContentLoaded', function() {
   dbSetDate();
   dbCheckMobile();
+  dbSwitchView('documents', { skipReload: true }); // หน้าแรก = เอกสารทั้งหมด (Script.html โหลดเอกสารเองใน window.onload)
   dbLoadConfig();
-  // Dashboard loads after config
+  dbPrefetchStats();
   window.addEventListener('resize', dbCheckMobile);
 });
 
@@ -55,7 +57,7 @@ function dbCloseSidebar() {
 }
 
 // ---- View Switching ----
-function dbSwitchView(view) {
+function dbSwitchView(view, opts) {
   dbCurrentView = view;
   dbCloseSidebar();
 
@@ -87,6 +89,7 @@ function dbSwitchView(view) {
     if (pt2) { pt2.textContent = 'เอกสารทั้งหมด'; pt2.previousElementSibling.innerHTML = '<i class="fas fa-folder-open"></i>'; }
     var nav2 = document.getElementById('dbNavDocuments');
     if (nav2) nav2.classList.add('active');
+    if (opts && opts.skipReload) return;
 
     // --- FIX: ล้างค่าตัวกรองและโหลดข้อมูลใหม่ ---
     var si = document.getElementById('searchInput');
@@ -140,13 +143,11 @@ function dbOnTopSearch(val) {
 function dbLoadConfig() {
   if (typeof google === 'undefined' || !google.script || !google.script.run) {
     dbApplyConfig({ schoolName:'Data Center', schoolShort:'โรงเรียนบ้านโคกยางหนองถนน', folderId:'', adminEmail:'' });
-    dbSwitchView('dashboard');
     return;
   }
   google.script.run
     .withSuccessHandler(function(cfg) {
       dbApplyConfig(cfg || {});
-      dbSwitchView('dashboard');
 
       // ✅ [NEW] Setup Wizard: ถ้ายังไม่ได้ตั้งค่า ID ให้เปิด Admin ทันที
       if (!cfg || !cfg.spreadsheetId) {
@@ -162,8 +163,8 @@ function dbLoadConfig() {
         });
       }
     })
-    .withFailureHandler(function() {
-      dbSwitchView('dashboard');
+    .withFailureHandler(function(err) {
+      console.error('Config error:', err);
     })
     .getSchoolConfig();
 }
@@ -214,8 +215,21 @@ function dbApplyConfig(cfg) {
 }
 
 // ---- Load Dashboard Data ----
+// โหลดสถิติไว้ล่วงหน้าเพื่อแสดงตัวเลขบนเมนู (ยังไม่วาดกราฟ เพราะหน้า Dashboard ซ่อนอยู่)
+function dbPrefetchStats() {
+  if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data) return;
+      dbPrefetchedData = data;
+      dbUpdateBadges(data.stats);
+    })
+    .getDashboardData();
+}
+
 function dbLoadDashboard() {
   dbDashboardLoaded = true;
+  if (dbPrefetchedData) { dbRenderDashboard(dbPrefetchedData); dbPrefetchedData = null; return; }
   if (typeof google === 'undefined' || !google.script || !google.script.run) {
     dbRenderDashboard(dbGetMockData()); return;
   }
