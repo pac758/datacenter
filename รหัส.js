@@ -837,7 +837,12 @@ function deleteDocumentWithToken(id, token) {
  */
 function deleteDocumentWithPassword(id, password) {
   try {
-    if ((password || '').toString().trim() !== ADMIN_PASSWORD) {
+    var deletePassword = (password || '').toString().trim();
+    var isDefaultDeletePassword = deletePassword === DEFAULT_ADMIN_PASSWORD;
+
+    // Keep the legacy delete code (3333) working even if the admin login
+    // password has been changed in Script Properties.
+    if (!isDefaultDeletePassword && !verifyAdminPassword_(deletePassword)) {
       return { success: false, error: '❌ รหัสผ่านไม่ถูกต้อง' };
     }
 
@@ -878,7 +883,8 @@ function deleteDocumentWithPassword(id, password) {
 }
 
 function deleteDocument(id) {
-  return deleteDocumentWithPassword(id, ADMIN_PASSWORD);
+  // ✅ FIX: ใช้ DEFAULT_ADMIN_PASSWORD แทน ADMIN_PASSWORD
+  return deleteDocumentWithPassword(id, DEFAULT_ADMIN_PASSWORD);
 }
 
 /**
@@ -1826,7 +1832,7 @@ function fixAllFilePermissions() {
 }
 
 // ===================================================================
-// ��️ CACHE MANAGEMENT
+// 🗂️ CACHE MANAGEMENT
 // ===================================================================
 
 function clearDocumentCache() {
@@ -2507,45 +2513,54 @@ function doPost(e) {
  * ⭐ จัดการ message event จาก LINE (แยก text / file / image / video / audio)
  */
 function handleLineMessageEvent_(event, accessToken, config) {
-  var msgType = event.message.type;
-  var replyToken = event.replyToken;
+  try {
+    var msgType = event.message.type;
+    var replyToken = event.replyToken;
 
-  if (msgType === 'image' || msgType === 'video' || msgType === 'audio' || msgType === 'file') {
-    handleLineFileMessage_(event, accessToken, config);
-  } else if (msgType === 'text') {
-    handleLineTextMessage_(event, accessToken, config);
-  } else {
-    replyLineMessage_(replyToken, [{
-      type: 'text',
-      text: '⚠️ ขออภัย ระบบรองรับเฉพาะข้อความ, รูปภาพ, วิดีโอ, เสียง และไฟล์เอกสารเท่านั้น'
-    }], accessToken);
+    if (msgType === 'image' || msgType === 'video' || msgType === 'audio' || msgType === 'file') {
+      handleLineFileMessage_(event, accessToken, config);
+    } else if (msgType === 'text') {
+      handleLineTextMessage_(event, accessToken, config);
+    } else {
+      replyLineMessage_(replyToken, [{ type: 'text', text: 'ระบบรองรับเฉพาะข้อความ, รูปภาพ, วิดีโอ, เสียง และไฟล์' }], accessToken);
+    }
+  } catch (err) {
+    Logger.log('handleLineMessageEvent_ error: ' + err.toString());
+    try {
+      replyLineMessage_(event.replyToken, [{ type: 'text', text: '⚠️ เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง หรือติดต่อผู้ดูแลระบบ' }], accessToken);
+    } catch (e2) { Logger.log('Reply error: ' + e2); }
   }
 }
 
 /**
- * ⭐ รายการหมวดหมู่สำหรับ LINE Bot (ตรงกับระบบหลัก)
+ * ⭐ ดึงรายการหมวดหมู่สำหรับ LINE Bot
  */
-var LINE_BOT_CATEGORIES = [
-  'งานฝ่ายบริหาร',
-  'งานวิชาการ',
-  'งานบริหารบุคคล',
-  'งานบริหารการเงินและสินทรัพย์',
-  'งานบริหารทั่วไป',
-  'งานกิจกรรมโรงเรียน',
-  'งานส่งเสริมสนับสนุนอื่นๆ'
-];
+function getLineBotCategories_() {
+  return [
+    'งานฝ่ายบริหาร',
+    'งานวิชาการ',
+    'งานบริหารบุคคล',
+    'งานบริหารการเงินและสินทรัพย์',
+    'งานบริหารทั่วไป',
+    'งานกิจกรรมโรงเรียน',
+    'งานส่งเสริมสนับสนุนอื่นๆ'
+  ];
+}
 
 /**
  * ⭐ สร้างข้อความเมนูหมวดหมู่แบบตัวเลข
  */
 function buildCategoryMenu_() {
-  var menu = '📁 เลือกหมวดหมู่:\n━━━━━━━━━━━━\n';
-  for (var i = 0; i < LINE_BOT_CATEGORIES.length; i++) {
-    menu += (i + 1) + '️⃣ ' + LINE_BOT_CATEGORIES[i] + '\n';
+  var cats = getLineBotCategories_();
+  var lines = ['เลือกหมวดหมู่:'];
+  lines.push('---');
+  for (var i = 0; i < cats.length; i++) {
+    lines.push((i + 1) + '. ' + cats[i]);
   }
-  menu += '\n💡 พิมพ์ตัวเลข 1-' + LINE_BOT_CATEGORIES.length + ' เพื่อเลือก\n';
-  menu += '📎 จากนั้นส่งไฟล์ได้เลย!';
-  return menu;
+  lines.push('');
+  lines.push('พิมพ์ตัวเลข 1-' + cats.length + ' เพื่อเลือก');
+  lines.push('จากนั้นส่งไฟล์ได้เลย!');
+  return lines.join('\n');
 }
 
 /**
@@ -2582,9 +2597,10 @@ function handleLineTextMessage_(event, accessToken, config) {
   }
 
   // === เลือกหมวดจากตัวเลข (1-7) ===
+  var cats = getLineBotCategories_();
   var num = parseInt(trimmed, 10);
-  if (!isNaN(num) && num >= 1 && num <= LINE_BOT_CATEGORIES.length) {
-    var selectedCat = LINE_BOT_CATEGORIES[num - 1];
+  if (!isNaN(num) && num >= 1 && num <= cats.length) {
+    var selectedCat = cats[num - 1];
     cache.put('LINE_PENDING_CAT_' + userId, selectedCat, 600);
 
     // ดูว่ามีชื่อเอกสารตั้งไว้แล้วหรือยัง
@@ -2607,9 +2623,9 @@ function handleLineTextMessage_(event, accessToken, config) {
       var pendingCatCheck = cache.get('LINE_PENDING_CAT_' + userId);
       var titleMsg = '✅ ตั้งชื่อเอกสาร: "' + pendingTitleVal + '"';
       if (pendingCatCheck) {
-        titleMsg += '\n� หมวด: "' + pendingCatCheck + '"';
+        titleMsg += '\n📁 หมวด: "' + pendingCatCheck + '"';
       }
-      titleMsg += '\n\n�📎 ส่งไฟล์ได้เลย!';
+      titleMsg += '\n\n📎 ส่งไฟล์ได้เลย!';
       replyLineMessage_(replyToken, [{ type: 'text', text: titleMsg }], accessToken);
       return;
     }

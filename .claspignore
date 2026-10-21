@@ -1,0 +1,6 @@
+.git/**
+.vscode/**
+.codex-*/**
+README.md
+system_analysis.md
+line-webhook-proxy-worker.md
