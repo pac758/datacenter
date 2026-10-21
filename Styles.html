@@ -1159,9 +1159,18 @@ body {
   transition: all var(--transition-base);
   border: 2px solid transparent;
   display: grid;
-  grid-template-columns: 60px 1fr 200px;
+  /* คอลัมน์ปุ่มกว้างตามจริง (auto) ไม่ให้ปุ่ม ดู/โหลด/แก้ไข/ลบ ล้นไปทับข้อความ */
+  grid-template-columns: 60px minmax(0, 1fr) auto;
   gap: 20px;
   align-items: center;
+}
+
+/* จอกลาง: ย้ายปุ่มลงไปอยู่ใต้ข้อมูลเอกสาร เพื่อให้ข้อความมีที่พอ */
+@media (min-width: 769px) and (max-width: 1280px) {
+  .document-list-item .list-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
 }
 
 .document-list-item:hover {
