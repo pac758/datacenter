@@ -1697,6 +1697,7 @@ function createListElement(doc) {
     <div class="list-icon">${icon}</div>
     <div class="list-content">
       <div class="list-title">${highlightText(doc.title, currentFilters.searchTerm)}</div>
+      ${fileLinks ? `<div class="list-files" style="margin:2px 0 8px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">${fileLinks}${extraFilesBtn}</div>` : ''}
       <div class="list-meta">
         <span class="list-category">${escapeHtml(doc.category)}</span>
         ${doc.tags ? `<span class="list-tag">${escapeHtml(doc.tags)}</span>` : ''}
@@ -1731,7 +1732,6 @@ function createListElement(doc) {
     <span class="list-detail-value">${escapeHtml(doc.submitter_name)}</span>
   </div>
 </div>
-      ${fileLinks ? `<div style="margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">${fileLinks}${extraFilesBtn}</div>` : ''}
     </div>
     <div class="list-actions">
       <button class="btn btn-view" onclick="viewDocument(${doc.id})">
