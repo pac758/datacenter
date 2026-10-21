@@ -1045,7 +1045,8 @@ window.onload = function() {
   const searchInput = document.getElementById('searchInput');
   
   // ⭐ สร้าง debounced search function ครั้งเดียว
-  const debouncedSearch = debounce(handleSearch, 400);
+  // พิมพ์ = ค้นหาเงียบๆ (ไม่มีป๊อปอัป), กด Enter/คลิกแว่นขยาย = ค้นหาพร้อมป๊อปอัป
+  const debouncedSearch = debounce(function() { handleSearch({ silent: true }); }, 600);
   
   // Search Input Event
   searchInput.addEventListener('input', function() {
@@ -1057,6 +1058,7 @@ window.onload = function() {
     if (!value) {
       removeBadge();
       currentFilters.searchTerm = '';
+      __lastSearchTerm = null;
       
       if (!currentFilters.category && !currentFilters.type) {
         filteredDocuments = [...allDocuments];
@@ -1069,6 +1071,14 @@ window.onload = function() {
     debouncedSearch();
   });
   
+  // คลิกไอคอนแว่นขยาย = ค้นหา
+  const searchIcon = document.querySelector('.search-box > i.fa-search');
+  if (searchIcon) {
+    searchIcon.style.cursor = 'pointer';
+    searchIcon.title = 'ค้นหา';
+    searchIcon.addEventListener('click', function() { handleSearch(); });
+  }
+
   // Search on Enter
   searchInput.addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
@@ -1201,6 +1211,7 @@ function runSafe(fnName, args = [], onOk = () => {}, onFail = () => {}) {
     }
     
    // ===== แทนที่ฟังก์ชัน loadDocuments เดิมทั้งหมด =====
+let __docLoadSeq = 0;
 function loadDocuments(forceRefresh = false, { suppressOverlay = false } = {}) {
   // ✅ ตรวจสอบว่าอยู่ใน Google Apps Script หรือไม่
   if (typeof google === 'undefined' || !google.script || !google.script.run) {
@@ -1253,9 +1264,12 @@ function loadDocuments(forceRefresh = false, { suppressOverlay = false } = {}) {
   });
 
   if (!suppressOverlay) showLoading('กำลังโหลดเอกสาร...');
+  const loadSeq = ++__docLoadSeq;
 
   google.script.run
     .withSuccessHandler(function (result) {
+      // พิมพ์ค้นหาเร็วๆ อาจมีหลายคำขอซ้อนกัน → ใช้เฉพาะผลของคำขอล่าสุด
+      if (loadSeq !== __docLoadSeq) return;
       hideLoading();
 
       console.log('📡 Server Response:', result);
@@ -1326,6 +1340,7 @@ function loadDocuments(forceRefresh = false, { suppressOverlay = false } = {}) {
       console.log('✅ โหลดเสร็จ:', allDocuments.length, 'รายการ (sort:', resolvedSortOrder, ')');
     })
     .withFailureHandler(function (error) {
+      if (loadSeq !== __docLoadSeq) return;
       hideLoading();
 
       console.error('❌ Error:', error);
@@ -2043,11 +2058,16 @@ function renderFilePage() {
 }
 
 // ===== อัปเดตฟังก์ชัน handleSearch =====
-function handleSearch() {
+let __lastSearchTerm = null;
+function handleSearch(opts) {
+  const silent = !!(opts && opts.silent);
   const searchInput = document.getElementById('searchInput');
   if (!searchInput) return;
   
   const searchTerm = searchInput.value.trim();
+  // พิมพ์แล้วค้นคำเดิมซ้ำ (เช่น หลังกด Enter ไปแล้ว) → ไม่ต้องโหลดใหม่
+  if (silent && searchTerm === __lastSearchTerm) return;
+  __lastSearchTerm = searchTerm;
   currentFilters.searchTerm = searchTerm;
   
   // ⭐ ถ้าไม่มีคำค้นหาและไม่มี filters = แสดงทั้งหมด
@@ -2066,10 +2086,19 @@ function handleSearch() {
   // เหตุผล: allDocuments เก็บแค่ข้อมูล "หน้าปัจจุบัน" (pagination) ทำให้ค้นหาไม่เจอข้อมูลที่อยู่นอกหน้า
   currentPage = 1;
   clearCache();
-  loadDocuments(true);
+  if (silent) setSearchIndicator_(true);
+  loadDocuments(true, { suppressOverlay: silent });
+}
+
+// แสดงไอคอนหมุนในช่องค้นหาแทนป๊อปอัป
+function setSearchIndicator_(on) {
+  const icon = document.querySelector('.search-box > i.fa-search, .search-box > i.fa-spinner');
+  if (!icon) return;
+  icon.className = on ? 'fas fa-spinner fa-spin' : 'fas fa-search';
 }
     // ⭐ เพิ่มฟังก์ชันนี้
 function clearSearch() {
+  __lastSearchTerm = null;
   const searchInput = document.getElementById('searchInput');
   const clearBtn = document.getElementById('clearSearchBtn');
   
@@ -5589,6 +5618,7 @@ function hideLoading() {
   const overlay = document.getElementById('loadingOverlay');
   if (!overlay) return;
   overlay.classList.remove('active');
+  if (typeof setSearchIndicator_ === 'function') setSearchIndicator_(false);
   // เคลียร์ให้สะอาด ป้องกัน DOM ค้าง
   overlay.innerHTML = `<div class="spinner"></div>`;
   __overlayActive = false;
